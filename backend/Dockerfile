@@ -8,11 +8,11 @@ RUN mvn dependency:go-offline -B
 COPY src ./src
 RUN mvn clean package -DskipTests -B
 
-FROM eclipse-temurin:17-jre-alpine
+FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
-RUN apk add --no-cache ttf-dejavu fontconfig wqy-zenhei
+RUN apt-get update && apt-get install -y fonts-dejavu fontconfig fonts-wqy-zenhei && rm -rf /var/lib/apt/lists/*
 
 ENV LANG=zh_CN.UTF-8
 ENV LANGUAGE=zh_CN:en
