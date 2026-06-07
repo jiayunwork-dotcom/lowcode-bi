@@ -21,7 +21,14 @@ import type {
   CsvUploadResponse,
   ColumnDataType,
   DataLineageResponse,
-  FileChunkUploadResponse
+  FileChunkUploadResponse,
+  AlertRule,
+  AlertEvent,
+  AlertStatistics,
+  AlertEventStatus,
+  AlertSeverity,
+  SystemMessage,
+  SystemMessageType
 } from '@/types'
 
 export const authApi = {
@@ -357,6 +364,61 @@ export const preAggregationApi = {
   disable: (id: string) => http.post<PreAggregation>(`/pre-aggregations/${id}/disable`)
 }
 
+export const alertApi = {
+  getRules: (params?: { page?: number; size?: number }) =>
+    http.get<{ content: AlertRule[]; totalElements: number; totalPages: number }>('/alerts/rules', params),
+
+  getRule: (id: string) => http.get<AlertRule>(`/alerts/rules/${id}`),
+
+  createRule: (data: Partial<AlertRule> & { notificationChannels: any[] }) =>
+    http.post<AlertRule>('/alerts/rules', data),
+
+  updateRule: (id: string, data: Partial<AlertRule> & { notificationChannels?: any[] }) =>
+    http.put<AlertRule>(`/alerts/rules/${id}`, data),
+
+  deleteRule: (id: string) => http.delete(`/alerts/rules/${id}`),
+
+  enableRule: (id: string) => http.post<AlertRule>(`/alerts/rules/${id}/enable`),
+
+  disableRule: (id: string) => http.post<AlertRule>(`/alerts/rules/${id}/disable`),
+
+  getRulesByDataModel: (dataModelId: string) =>
+    http.get<AlertRule[]>(`/alerts/rules/data-model/${dataModelId}`),
+
+  getSubscribedRules: (params?: { page?: number; size?: number }) =>
+    http.get<{ content: AlertRule[]; totalElements: number }>('/alerts/rules/subscribed', params),
+
+  subscribe: (ruleId: string, subscribed: boolean) =>
+    http.post(`/alerts/rules/${ruleId}/subscribe`, { subscribed }),
+
+  isSubscribed: (ruleId: string) => http.get<{ subscribed: boolean }>(`/alerts/rules/${ruleId}/subscribed`),
+
+  getEvents: (params?: { status?: AlertEventStatus; severity?: AlertSeverity; page?: number; size?: number }) =>
+    http.get<{ content: AlertEvent[]; totalElements: number; totalPages: number }>('/alerts/events', params),
+
+  getEvent: (id: string) => http.get<AlertEvent>(`/alerts/events/${id}`),
+
+  acknowledgeEvent: (id: string) => http.post<AlertEvent>(`/alerts/events/${id}/acknowledge`),
+
+  getEventsByRule: (ruleId: string, params?: { page?: number; size?: number }) =>
+    http.get<{ content: AlertEvent[]; totalElements: number }>(`/alerts/rules/${ruleId}/events`, params),
+
+  getStatistics: () => http.get<AlertStatistics>('/alerts/statistics')
+}
+
+export const messageApi = {
+  getMessages: (params?: { type?: SystemMessageType; isRead?: boolean; page?: number; size?: number }) =>
+    http.get<{ content: SystemMessage[]; totalElements: number }>('/messages', params),
+
+  getMessage: (id: string) => http.get<SystemMessage>(`/messages/${id}`),
+
+  markAsRead: (id: string) => http.post(`/messages/${id}/read`),
+
+  markAllAsRead: () => http.post('/messages/read-all'),
+
+  getUnreadCount: () => http.get<{ count: number }>('/messages/unread-count')
+}
+
 export default {
   auth: authApi,
   tenant: tenantApi,
@@ -368,5 +430,7 @@ export default {
   schedule: scheduleApi,
   permission: permissionApi,
   embed: embedApi,
-  preAggregation: preAggregationApi
+  preAggregation: preAggregationApi,
+  alert: alertApi,
+  message: messageApi
 }

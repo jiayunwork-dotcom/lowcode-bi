@@ -462,3 +462,106 @@ export interface FileChunkUploadResponse {
   message: string
   uploadedFilePath?: string
 }
+
+export type AlertTriggerType = 'VALUE' | 'RELATIVE_CHANGE'
+export type AlertOperator =
+  | 'GREATER_THAN'
+  | 'LESS_THAN'
+  | 'EQUAL'
+  | 'NOT_EQUAL'
+  | 'GREATER_THAN_OR_EQUAL'
+  | 'LESS_THAN_OR_EQUAL'
+  | 'INCREASE_PERCENT'
+  | 'DECREASE_PERCENT'
+  | 'CHANGE_PERCENT'
+export type AlertCheckInterval =
+  | 'EVERY_5_MINUTES'
+  | 'EVERY_15_MINUTES'
+  | 'EVERY_30_MINUTES'
+  | 'EVERY_HOUR'
+  | 'EVERY_6_HOURS'
+  | 'EVERY_12_HOURS'
+  | 'EVERY_DAY'
+export type AlertSeverity = 'INFO' | 'WARNING' | 'CRITICAL'
+export type AlertRuleStatus = 'ACTIVE' | 'INVALID' | 'DISABLED'
+export type AlertEventStatus = 'FIRING' | 'RESOLVED' | 'ACKNOWLEDGED'
+export type NotificationChannelType = 'IN_APP' | 'EMAIL' | 'WEBHOOK'
+export type NotificationStatus = 'PENDING' | 'SENT' | 'FAILED' | 'RETRYING'
+export type SystemMessageType = 'ALERT' | 'NOTIFICATION' | 'SYSTEM'
+
+export interface AlertRule {
+  id: string
+  name: string
+  description: string
+  dataModelId: string
+  dataModelName?: string
+  measureId: string
+  measureName: string
+  triggerType: AlertTriggerType
+  operator: AlertOperator
+  threshold: number
+  checkInterval: AlertCheckInterval
+  silencePeriod: number
+  severity: AlertSeverity
+  isEnabled: boolean
+  status: AlertRuleStatus
+  lastTriggeredAt?: string
+  lastCheckedAt?: string
+  createdBy: string
+  createdAt: string
+  notificationChannels?: NotificationChannel[]
+  eventCount?: number
+  subscriberCount?: number
+}
+
+export interface NotificationChannel {
+  id?: string
+  type: NotificationChannelType
+  config: Record<string, any>
+  enabled?: boolean
+}
+
+export interface AlertEvent {
+  id: string
+  alertRuleId: string
+  alertRuleName: string
+  measureName: string
+  triggerValue: number
+  threshold: number
+  previousValue?: number
+  changePercent?: number
+  severity: AlertSeverity
+  eventStatus: AlertEventStatus
+  triggeredAt: string
+  resolvedAt?: string
+  acknowledgedAt?: string
+  acknowledgedBy?: string
+  isRecovered: boolean
+  recoveryValue?: number
+  trendData?: { time: string; value: number }[]
+  triggerHighlightTime?: string
+}
+
+export interface AlertStatistics {
+  activeAlertCount: number
+  todayNewCount: number
+  topTriggeredRules: {
+    ruleId: string
+    ruleName: string
+    triggerCount: number
+  }[]
+  averageRecoveryMinutes?: number
+}
+
+export interface SystemMessage {
+  id: string
+  messageType: SystemMessageType
+  title: string
+  content?: string
+  relatedType?: string
+  relatedId?: string
+  isRead: boolean
+  readAt?: string
+  createdAt: string
+  unreadCount?: number
+}

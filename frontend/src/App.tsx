@@ -14,6 +14,8 @@ import UserManagement from '@/pages/system/UserManagement'
 import RoleManagement from '@/pages/system/RoleManagement'
 import PermissionManagement from '@/pages/system/PermissionManagement'
 import ScheduleManagement from '@/pages/schedule/List'
+import AlertCenter from '@/pages/alert/AlertCenter'
+import AlertRuleManagement from '@/pages/alert/AlertRuleManagement'
 
 function App() {
   const { isAuthenticated, token } = useAuthStore()
@@ -42,6 +44,8 @@ function App() {
         <Route path="datamodel/:id/edit" element={<DataModelEditor />} />
         <Route path="sql" element={<SqlEditor />} />
         <Route path="schedule" element={<ScheduleManagement />} />
+        <Route path="alert" element={<AlertCenter />} />
+        <Route path="alert/rules" element={<AlertRuleManagement />} />
         <Route path="system/users" element={<UserManagement />} />
         <Route path="system/roles" element={<RoleManagement />} />
         <Route path="system/permissions" element={<PermissionManagement />} />

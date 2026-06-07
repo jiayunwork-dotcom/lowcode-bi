@@ -23,4 +23,7 @@ public interface MeasureRepository extends JpaRepository<Measure, UUID> {
     List<Measure> findPreAggregatedByDataModelId(@Param("dataModelId") UUID dataModelId);
 
     boolean existsByDataModelIdAndNameAndDeletedFalse(UUID dataModelId, String name);
+
+    @Query("SELECT m FROM Measure m WHERE m.id = :id AND m.dataModel.tenant.id = :tenantId AND m.deleted = false")
+    Optional<Measure> findByIdAndTenantId(@Param("id") UUID id, @Param("tenantId") UUID tenantId);
 }

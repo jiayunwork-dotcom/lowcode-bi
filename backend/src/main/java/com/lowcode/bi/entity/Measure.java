@@ -2,6 +2,7 @@ package com.lowcode.bi.entity;
 
 import com.lowcode.bi.common.BaseEntity;
 import com.lowcode.bi.common.enums.AggregationType;
+import com.lowcode.bi.listener.DataModelAlertListener;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -10,6 +11,7 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 @Entity
 @Table(name = "measures")
+@EntityListeners(DataModelAlertListener.class)
 public class Measure extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)

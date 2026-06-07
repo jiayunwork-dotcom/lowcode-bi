@@ -1,6 +1,7 @@
 package com.lowcode.bi.entity;
 
 import com.lowcode.bi.common.BaseEntity;
+import com.lowcode.bi.listener.DataModelAlertListener;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -14,6 +15,7 @@ import java.util.Set;
 @EqualsAndHashCode(callSuper = true)
 @Entity
 @Table(name = "data_models")
+@EntityListeners(DataModelAlertListener.class)
 public class DataModel extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)

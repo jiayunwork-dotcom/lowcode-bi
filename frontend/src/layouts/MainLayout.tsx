@@ -18,7 +18,8 @@ import {
   FullscreenExitOutlined,
   BulbOutlined,
   BulbFilled,
-  BellOutlined
+  BellOutlined,
+  WarningOutlined
 } from '@ant-design/icons'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useAuthStore } from '@/store/authStore'
@@ -68,6 +69,18 @@ const MainLayout: React.FC<MainLayoutProps> = () => {
       key: '/schedule',
       icon: <ClockCircleOutlined />,
       label: '定时任务',
+      roles: ['ADMIN', 'EDITOR']
+    },
+    {
+      key: '/alert',
+      icon: <BellOutlined />,
+      label: '告警中心',
+      roles: ['ADMIN', 'EDITOR', 'VIEWER']
+    },
+    {
+      key: '/alert/rules',
+      icon: <WarningOutlined />,
+      label: '告警规则',
       roles: ['ADMIN', 'EDITOR']
     },
     {
