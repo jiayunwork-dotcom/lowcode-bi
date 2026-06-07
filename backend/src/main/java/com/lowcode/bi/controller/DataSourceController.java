@@ -1,10 +1,18 @@
 package com.lowcode.bi.controller;
 
 import com.lowcode.bi.common.enums.DatabaseType;
+import com.lowcode.bi.dto.CsvColumnTypeUpdateRequest;
+import com.lowcode.bi.dto.CsvPreviewResponse;
+import com.lowcode.bi.dto.CsvRefreshConfigRequest;
+import com.lowcode.bi.dto.DataLineageResponse;
+import com.lowcode.bi.dto.FileChunkUploadRequest;
+import com.lowcode.bi.dto.FileChunkUploadResponse;
 import com.lowcode.bi.entity.DataSource;
 import com.lowcode.bi.entity.TableMetadata;
 import com.lowcode.bi.security.TenantContext;
+import com.lowcode.bi.service.CsvRefreshService;
 import com.lowcode.bi.service.DataSourceService;
+import com.lowcode.bi.service.FileChunkService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +20,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,6 +31,8 @@ import java.util.UUID;
 public class DataSourceController {
 
     private final DataSourceService dataSourceService;
+    private final FileChunkService fileChunkService;
+    private final CsvRefreshService csvRefreshService;
 
     @GetMapping
     @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR', 'VIEWER')")
@@ -131,5 +142,96 @@ public class DataSourceController {
     public ResponseEntity<Map<String, Object>> getConnectionPoolStatus() {
         UUID tenantId = TenantContext.getTenantId();
         return ResponseEntity.ok(dataSourceService.getConnectionPoolStatus(tenantId));
+    }
+
+    @PostMapping("/preview-csv-enhanced")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<CsvPreviewResponse> previewCsvEnhanced(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "20") int limit) {
+        return ResponseEntity.ok(dataSourceService.previewCsvEnhanced(file, limit));
+    }
+
+    @PostMapping("/update-column-types")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<Map<String, Object>> updateColumnTypes(
+            @Valid @RequestBody CsvColumnTypeUpdateRequest request) {
+        dataSourceService.updateColumnTypes(
+                request.getDataSourceId(),
+                request.getTableId(),
+                request.getColumnTypes()
+        );
+        return ResponseEntity.ok(Map.of("success", true, "message", "列类型更新成功"));
+    }
+
+    @PostMapping("/upload-chunk")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<FileChunkUploadResponse> uploadChunk(
+            @RequestParam("fileId") String fileId,
+            @RequestParam("fileName") String fileName,
+            @RequestParam("chunkNumber") Integer chunkNumber,
+            @RequestParam("totalChunks") Integer totalChunks,
+            @RequestParam("chunkSize") Long chunkSize,
+            @RequestParam("totalSize") Long totalSize,
+            @RequestParam("file") MultipartFile file) {
+        FileChunkUploadRequest request = new FileChunkUploadRequest();
+        request.setFileId(fileId);
+        request.setFileName(fileName);
+        request.setChunkNumber(chunkNumber);
+        request.setTotalChunks(totalChunks);
+        request.setChunkSize(chunkSize);
+        request.setTotalSize(totalSize);
+        request.setFile(file);
+        return ResponseEntity.ok(fileChunkService.uploadChunk(request));
+    }
+
+    @GetMapping("/check-chunk")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<Map<String, Object>> checkChunk(
+            @RequestParam("fileId") String fileId,
+            @RequestParam("chunkNumber") int chunkNumber) {
+        boolean exists = fileChunkService.checkChunkExists(fileId, chunkNumber);
+        return ResponseEntity.ok(Map.of("exists", exists));
+    }
+
+    @PostMapping("/{id}/merge-chunks")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<Map<String, Object>> mergeChunks(
+            @PathVariable UUID id,
+            @RequestParam("fileId") String fileId,
+            @RequestParam("fileName") String fileName,
+            @RequestParam("totalChunks") int totalChunks,
+            @RequestParam("totalSize") long totalSize) {
+        UUID tenantId = TenantContext.getTenantId();
+        File mergedFile = fileChunkService.mergeChunks(fileId, fileName, totalChunks, tenantId);
+        Map<String, Object> result = dataSourceService.uploadCsvFromMergedFile(
+                id, mergedFile, fileName, totalSize);
+        fileChunkService.cleanupChunks(fileId);
+        return ResponseEntity.ok(result);
+    }
+
+    @PostMapping("/configure-refresh")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<Map<String, Object>> configureRefresh(
+            @Valid @RequestBody CsvRefreshConfigRequest request) {
+        csvRefreshService.configureRefresh(
+                request.getDataSourceId(),
+                request.getRefreshInterval(),
+                request.getRefreshDirectory()
+        );
+        return ResponseEntity.ok(Map.of("success", true, "message", "刷新配置保存成功"));
+    }
+
+    @PostMapping("/{id}/refresh-now")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR')")
+    public ResponseEntity<Map<String, Object>> triggerManualRefresh(@PathVariable UUID id) {
+        csvRefreshService.triggerManualRefresh(id);
+        return ResponseEntity.ok(Map.of("success", true, "message", "刷新任务已启动"));
+    }
+
+    @GetMapping("/{id}/lineage")
+    @PreAuthorize("hasAnyRole('TENANT_ADMIN', 'EDITOR', 'VIEWER')")
+    public ResponseEntity<DataLineageResponse> getDataLineage(@PathVariable UUID id) {
+        return ResponseEntity.ok(dataSourceService.getDataLineage(id));
     }
 }

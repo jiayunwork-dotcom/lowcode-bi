@@ -1,4 +1,6 @@
 import { http } from './request'
+import request from './request'
+import type { AxiosProgressEvent, AxiosResponse } from 'axios'
 import type {
   User,
   Tenant,
@@ -14,7 +16,11 @@ import type {
   ScheduleExecutionLog,
   EmbedToken,
   RowPermissionRule,
-  PreAggregation
+  PreAggregation,
+  CsvPreviewResponse,
+  ColumnDataType,
+  DataLineageResponse,
+  FileChunkUploadResponse
 } from '@/types'
 
 export const authApi = {
@@ -57,32 +63,85 @@ export const userApi = {
 }
 
 export const dataSourceApi = {
-  getList: (params?: any) => http.get<DataSource[]>('/datasources', params),
+  getList: (params?: any) => http.get<DataSource[]>('/data-sources', params),
   
-  getById: (id: string) => http.get<DataSource>(`/datasources/${id}`),
+  getById: (id: string) => http.get<DataSource>(`/data-sources/${id}`),
   
-  create: (data: Partial<DataSource>) => http.post<DataSource>('/datasources', data),
+  create: (data: Partial<DataSource>) => http.post<DataSource>('/data-sources', data),
   
-  update: (id: string, data: Partial<DataSource>) => http.put<DataSource>(`/datasources/${id}`, data),
+  update: (id: string, data: Partial<DataSource>) => http.put<DataSource>(`/data-sources/${id}`, data),
   
-  delete: (id: string) => http.delete(`/datasources/${id}`),
+  delete: (id: string) => http.delete(`/data-sources/${id}`),
   
   testConnection: (data: Partial<DataSource>) =>
-    http.post<{ success: boolean; message: string }>('/datasources/test', data),
+    http.post<{ success: boolean; message: string }>('/data-sources/test-connection', data),
   
-  getTables: (id: string) => http.get<TableMetadata[]>(`/datasources/${id}/tables`),
+  getTables: (id: string) => http.get<TableMetadata[]>(`/data-sources/${id}/tables`),
   
   getTablePreview: (id: string, tableName: string, limit = 100) =>
-    http.get<QueryResult>(`/datasources/${id}/tables/${tableName}/preview`, { limit }),
+    http.get<QueryResult>(`/data-sources/${id}/tables/${tableName}/preview`, { limit }),
   
-  syncMetadata: (id: string) => http.post(`/datasources/${id}/sync`),
+  syncMetadata: (id: string) => http.post(`/data-sources/${id}/sync-metadata`),
   
-  uploadCsv: (file: File, name: string, onProgress?: (percent: number) => void) =>
-    http.upload<DataSource>('/datasources/upload', file, { name }, onProgress),
+  uploadCsv: (id: string, file: File, onProgress?: (percent: number) => void) =>
+    http.upload<DataSource>(`/data-sources/${id}/upload-csv`, file, {}, onProgress),
+  
+  previewCsv: (file: File, limit = 20) =>
+    http.upload<CsvPreviewResponse>('/data-sources/preview-csv-enhanced', file, { limit }),
+  
+  updateColumnTypes: (dataSourceId: string, tableId: string, columnTypes: Record<string, ColumnDataType>) =>
+    http.post('/data-sources/update-column-types', { dataSourceId, tableId, columnTypes }),
+  
+  uploadChunk: (
+    fileId: string,
+    fileName: string,
+    chunkNumber: number,
+    totalChunks: number,
+    chunkSize: number,
+    totalSize: number,
+    file: Blob,
+    onProgress?: (percent: number) => void
+  ): Promise<FileChunkUploadResponse> => {
+    const formData = new FormData()
+    formData.append('fileId', fileId)
+    formData.append('fileName', fileName)
+    formData.append('chunkNumber', String(chunkNumber))
+    formData.append('totalChunks', String(totalChunks))
+    formData.append('chunkSize', String(chunkSize))
+    formData.append('totalSize', String(totalSize))
+    formData.append('file', file)
+    
+    return request.post('/data-sources/upload-chunk', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (progressEvent: AxiosProgressEvent) => {
+        if (onProgress && progressEvent.total) {
+          const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+          onProgress(percent)
+        }
+      }
+    }).then((response: AxiosResponse) => response.data as FileChunkUploadResponse)
+  },
+  
+  checkChunk: (fileId: string, chunkNumber: number) =>
+    http.get<{ exists: boolean }>('/data-sources/check-chunk', { fileId, chunkNumber }),
+  
+  mergeChunks: (id: string, fileId: string, fileName: string, totalChunks: number, totalSize: number) =>
+    http.post(`/data-sources/${id}/merge-chunks`, null, {
+      params: { fileId, fileName, totalChunks, totalSize }
+    }),
+  
+  configureRefresh: (dataSourceId: string, refreshInterval: string, refreshDirectory: string) =>
+    http.post('/data-sources/configure-refresh', { dataSourceId, refreshInterval, refreshDirectory }),
+  
+  refreshNow: (id: string) =>
+    http.post(`/data-sources/${id}/refresh-now`),
+  
+  getLineage: (id: string) =>
+    http.get<DataLineageResponse>(`/data-sources/${id}/lineage`),
   
   getPoolStatus: (id: string) =>
     http.get<{ activeConnections: number; idleConnections: number; totalConnections: number }>(
-      `/datasources/${id}/pool-status`
+      `/data-sources/${id}/pool-status`
     )
 }
 

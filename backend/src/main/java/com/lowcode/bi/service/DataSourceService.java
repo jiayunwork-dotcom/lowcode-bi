@@ -1,5 +1,8 @@
 package com.lowcode.bi.service;
 
+import com.lowcode.bi.common.enums.ColumnDataType;
+import com.lowcode.bi.dto.CsvPreviewResponse;
+import com.lowcode.bi.dto.DataLineageResponse;
 import com.lowcode.bi.entity.DataSource;
 import com.lowcode.bi.entity.TableMetadata;
 import com.lowcode.bi.common.enums.DatabaseType;
@@ -40,6 +43,14 @@ public interface DataSourceService {
     void validateCsvFile(MultipartFile file);
 
     List<Map<String, Object>> previewCsv(MultipartFile file, int limit);
+
+    CsvPreviewResponse previewCsvEnhanced(MultipartFile file, int limit);
+
+    void updateColumnTypes(UUID dataSourceId, UUID tableId, Map<String, ColumnDataType> columnTypes);
+
+    Map<String, Object> uploadCsvFromMergedFile(UUID dataSourceId, java.io.File mergedFile, String originalFileName, long originalFileSize);
+
+    DataLineageResponse getDataLineage(UUID dataSourceId);
 
     Map<String, Object> getConnectionPoolStatus(UUID tenantId);
 }

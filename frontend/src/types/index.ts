@@ -39,6 +39,15 @@ export interface DataSource {
   createdAt: string
   updatedAt: string
   tables?: TableMetadata[]
+  csvFilePath?: string
+  csvFileName?: string
+  csvFileSize?: number
+  csvRefreshInterval?: 'OFF' | 'MANUAL' | 'THIRTY_SECONDS' | 'ONE_MINUTE' | 'FIVE_MINUTES' | 'TEN_MINUTES' | 'THIRTY_MINUTES' | 'ONE_HOUR' | 'ONE_DAY'
+  csvRefreshDirectory?: string
+  csvLastImportTime?: string
+  csvLastRefreshStatus?: 'SUCCESS' | 'FAILED' | 'REFRESHING'
+  csvLastRefreshError?: string
+  csvRefreshInProgress?: boolean
 }
 
 export interface TableMetadata {
@@ -391,4 +400,57 @@ export interface ChartSeries {
   name: string
   type: string
   data: ChartDataPoint[]
+}
+
+export interface CsvPreviewResponse {
+  headers: string[]
+  columnTypes: ColumnDataType[]
+  rows: Record<string, any>[]
+  charset: string
+  rowCount: number
+  columnCount: number
+  fileName: string
+  fileSize: number
+}
+
+export type ColumnDataType = 'STRING' | 'INTEGER' | 'LONG' | 'DOUBLE' | 'DECIMAL' | 'BOOLEAN' | 'DATE' | 'DATETIME' | 'TIMESTAMP' | 'TEXT' | 'BINARY' | 'JSON'
+
+export interface DataLineageResponse {
+  dataSource: DataSourceNode
+  dataModels: DataModelNode[]
+  dashboards: DashboardNode[]
+}
+
+export interface DataSourceNode {
+  id: string
+  name: string
+  type: string
+}
+
+export interface DataModelNode {
+  id: string
+  name: string
+  description: string
+  dataSourceId: string
+  tableCount: number
+  measureCount: number
+  dimensionCount: number
+}
+
+export interface DashboardNode {
+  id: string
+  name: string
+  description: string
+  dataModelId: string
+  componentCount: number
+  isPublished: boolean
+}
+
+export interface FileChunkUploadResponse {
+  fileId: string
+  chunkNumber: number
+  success: boolean
+  completed: boolean
+  message: string
+  uploadedFilePath?: string
 }

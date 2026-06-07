@@ -2,6 +2,7 @@ package com.lowcode.bi.entity;
 
 import com.lowcode.bi.common.BaseEntity;
 import com.lowcode.bi.common.enums.DatabaseType;
+import com.lowcode.bi.common.enums.RefreshInterval;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -60,6 +61,25 @@ public class DataSource extends BaseEntity {
 
     @Column(name = "csv_file_size")
     private Long csvFileSize;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "csv_refresh_interval", length = 32)
+    private RefreshInterval csvRefreshInterval = RefreshInterval.MANUAL;
+
+    @Column(name = "csv_refresh_directory", length = 512)
+    private String csvRefreshDirectory;
+
+    @Column(name = "csv_last_import_time")
+    private java.time.LocalDateTime csvLastImportTime;
+
+    @Column(name = "csv_last_refresh_status", length = 32)
+    private String csvLastRefreshStatus;
+
+    @Column(name = "csv_last_refresh_error", length = 1024)
+    private String csvLastRefreshError;
+
+    @Column(name = "csv_refresh_in_progress", nullable = false)
+    private Boolean csvRefreshInProgress = false;
 
     @Column(name = "max_pool_size", nullable = false)
     private Integer maxPoolSize = 20;

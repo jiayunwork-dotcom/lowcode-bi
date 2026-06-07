@@ -5,11 +5,18 @@ import com.lowcode.bi.common.enums.DatabaseType;
 import com.lowcode.bi.common.exception.BusinessException;
 import com.lowcode.bi.config.DataSourcePoolConfig;
 import com.lowcode.bi.config.EncryptionConfig;
+import com.lowcode.bi.dto.CsvPreviewResponse;
+import com.lowcode.bi.dto.DataLineageResponse;
 import com.lowcode.bi.entity.ColumnMetadata;
+import com.lowcode.bi.entity.Dashboard;
+import com.lowcode.bi.entity.DashboardComponent;
+import com.lowcode.bi.entity.DataModel;
 import com.lowcode.bi.entity.DataSource;
 import com.lowcode.bi.entity.TableMetadata;
 import com.lowcode.bi.entity.Tenant;
 import com.lowcode.bi.repository.ColumnMetadataRepository;
+import com.lowcode.bi.repository.DashboardRepository;
+import com.lowcode.bi.repository.DataModelRepository;
 import com.lowcode.bi.repository.DataSourceRepository;
 import com.lowcode.bi.repository.TableMetadataRepository;
 import com.lowcode.bi.repository.TenantRepository;
@@ -37,6 +44,7 @@ import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -49,6 +57,8 @@ public class DataSourceServiceImpl implements DataSourceService {
     private final TenantRepository tenantRepository;
     private final DataSourcePoolConfig poolConfig;
     private final EncryptionConfig encryptionConfig;
+    private final DataModelRepository dataModelRepository;
+    private final DashboardRepository dashboardRepository;
 
     @Value("${app.export.csv.max-columns:500}")
     private int maxCsvColumns;
@@ -784,5 +794,321 @@ public class DataSourceServiceImpl implements DataSourceService {
         status.put("dataSources", dsStatusList);
 
         return status;
+    }
+
+    @Override
+    public CsvPreviewResponse previewCsvEnhanced(MultipartFile file, int limit) {
+        try {
+            byte[] bytes = file.getBytes();
+            Charset charset = detectCharset(bytes);
+
+            List<String> headers = new ArrayList<>();
+            List<ColumnDataType> columnTypes = new ArrayList<>();
+            List<Map<String, Object>> rows = new ArrayList<>();
+
+            try (Reader reader = new InputStreamReader(new ByteArrayInputStream(bytes), charset);
+                 CSVParser parser = CSVFormat.DEFAULT
+                         .builder()
+                         .setHeader()
+                         .setSkipHeaderRecord(true)
+                         .setIgnoreHeaderCase(true)
+                         .setTrim(true)
+                         .get()
+                         .parse(reader)) {
+
+                headers = parser.getHeaderNames();
+
+                if (headers.size() > maxCsvColumns) {
+                    throw new BusinessException("列数过多，请检查文件格式。最大支持" + maxCsvColumns + "列");
+                }
+
+                for (int i = 0; i < headers.size(); i++) {
+                    columnTypes.add(ColumnDataType.STRING);
+                }
+
+                int count = 0;
+                for (CSVRecord record : parser) {
+                    if (count >= limit) break;
+
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    for (int i = 0; i < headers.size(); i++) {
+                        String value = record.get(i);
+                        row.put(headers.get(i), value);
+
+                        if (count < 20) {
+                            ColumnDataType inferredType = inferColumnType(value);
+                            if (columnTypes.get(i) == ColumnDataType.STRING && inferredType != ColumnDataType.STRING) {
+                                columnTypes.set(i, inferredType);
+                            } else if (columnTypes.get(i) == ColumnDataType.INTEGER && inferredType == ColumnDataType.DOUBLE) {
+                                columnTypes.set(i, ColumnDataType.DOUBLE);
+                            }
+                        }
+                    }
+                    rows.add(row);
+                    count++;
+                }
+            }
+
+            CsvPreviewResponse response = new CsvPreviewResponse();
+            response.setHeaders(headers);
+            response.setColumnTypes(columnTypes);
+            response.setRows(rows);
+            response.setCharset(charset.name());
+            response.setRowCount(rows.size());
+            response.setColumnCount(headers.size());
+            response.setFileName(file.getOriginalFilename());
+            response.setFileSize(file.getSize());
+
+            return response;
+
+        } catch (Exception e) {
+            log.error("CSV preview failed: {}", e.getMessage());
+            throw new BusinessException("CSV文件解析失败: " + e.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void updateColumnTypes(UUID dataSourceId, UUID tableId, Map<String, ColumnDataType> columnTypes) {
+        UUID tenantId = TenantContext.getTenantId();
+        DataSource dataSource = dataSourceRepository.findByIdAndTenantId(dataSourceId, tenantId)
+                .orElseThrow(() -> new BusinessException("数据源不存在"));
+
+        if (dataSource.getDatabaseType() != DatabaseType.CSV) {
+            throw new BusinessException("只能修改CSV类型数据源的列类型");
+        }
+
+        TableMetadata table = tableMetadataRepository.findById(tableId)
+                .orElseThrow(() -> new BusinessException("表不存在"));
+
+        if (!table.getDataSource().getId().equals(dataSourceId)) {
+            throw new BusinessException("表不属于当前数据源");
+        }
+
+        List<ColumnMetadata> columns = columnMetadataRepository.findByTableId(tableId);
+
+        for (ColumnMetadata column : columns) {
+            if (columnTypes.containsKey(column.getColumnName())) {
+                ColumnDataType newType = columnTypes.get(column.getColumnName());
+                column.setDataType(newType);
+                column.setIsDimension(!isNumericType(newType));
+                column.setIsMeasure(isNumericType(newType));
+                columnMetadataRepository.save(column);
+            }
+        }
+
+        log.info("列类型更新成功: dataSourceId={}, tableId={}", dataSourceId, tableId);
+    }
+
+    @Override
+    @Transactional
+    public Map<String, Object> uploadCsvFromMergedFile(UUID dataSourceId, File mergedFile, String originalFileName, long originalFileSize) {
+        UUID tenantId = TenantContext.getTenantId();
+        DataSource dataSource = dataSourceRepository.findByIdAndTenantId(dataSourceId, tenantId)
+                .orElseThrow(() -> new BusinessException("数据源不存在"));
+
+        if (dataSource.getDatabaseType() != DatabaseType.CSV) {
+            throw new BusinessException("只能上传CSV文件到CSV类型数据源");
+        }
+
+        try {
+            String sanitizedFileName = sanitizeFileName(originalFileName);
+            Path storageDir = getCsvStoragePath(tenantId, dataSourceId);
+
+            Files.createDirectories(storageDir);
+
+            Path targetPath = storageDir.resolve(sanitizedFileName);
+            Files.copy(mergedFile.toPath(), targetPath, StandardCopyOption.REPLACE_EXISTING);
+
+            Map<String, Object> previewData = previewCsvFromFile(targetPath.toFile(), 100);
+
+            @SuppressWarnings("unchecked")
+            List<String> headers = (List<String>) previewData.get("headers");
+            @SuppressWarnings("unchecked")
+            List<ColumnDataType> columnTypes = (List<ColumnDataType>) previewData.get("columnTypes");
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> rows = (List<Map<String, Object>>) previewData.get("rows");
+
+            TableMetadata table = tableMetadataRepository
+                    .findByDataSourceAndSchemaAndTable(dataSourceId, null, sanitizedFileName)
+                    .orElse(new TableMetadata());
+
+            table.setDataSource(dataSource);
+            table.setSchemaName(null);
+            table.setTableName(sanitizedFileName);
+            table.setDisplayName(originalFileName);
+            table.setDescription("CSV文件上传: " + originalFileName);
+            table.setIsView(false);
+            table.setRowCount((long) rows.size());
+            table.setSizeBytes(originalFileSize);
+            table.setLastRefreshedAt(LocalDateTime.now());
+            table.setRefreshStrategy("MANUAL");
+
+            TableMetadata savedTable = tableMetadataRepository.save(table);
+
+            List<ColumnMetadata> columns = new ArrayList<>();
+            for (int i = 0; i < headers.size(); i++) {
+                ColumnMetadata column = new ColumnMetadata();
+                column.setTable(savedTable);
+                column.setColumnName(headers.get(i));
+                column.setDisplayName(headers.get(i));
+                column.setPosition(i);
+                column.setDataType(columnTypes.get(i));
+                column.setIsNullable(true);
+                column.setIsDimension(!isNumericType(columnTypes.get(i)));
+                column.setIsMeasure(isNumericType(columnTypes.get(i)));
+                columns.add(columnMetadataRepository.save(column));
+            }
+
+            savedTable.setColumns(columns);
+
+            dataSource.setCsvFilePath(targetPath.toString());
+            dataSource.setCsvFileName(sanitizedFileName);
+            dataSource.setCsvFileSize(originalFileSize);
+            dataSource.setCsvLastImportTime(LocalDateTime.now());
+            dataSourceRepository.save(dataSource);
+
+            Map<String, Object> result = new HashMap<>();
+            result.put("tableId", savedTable.getId());
+            result.put("tableName", sanitizedFileName);
+            result.put("rowCount", rows.size());
+            result.put("columnCount", headers.size());
+            result.put("fileSize", originalFileSize);
+            result.put("filePath", targetPath.toString());
+
+            return result;
+
+        } catch (IOException e) {
+            log.error("CSV upload from merged file failed: {}", e.getMessage());
+            throw new BusinessException("CSV文件上传失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> previewCsvFromFile(File file, int limit) throws IOException {
+        byte[] bytes = Files.readAllBytes(file.toPath());
+        Charset charset = detectCharset(bytes);
+
+        List<String> headers = new ArrayList<>();
+        List<ColumnDataType> columnTypes = new ArrayList<>();
+        List<Map<String, Object>> rows = new ArrayList<>();
+
+        try (Reader reader = new InputStreamReader(new ByteArrayInputStream(bytes), charset);
+             CSVParser parser = CSVFormat.DEFAULT
+                     .builder()
+                     .setHeader()
+                     .setSkipHeaderRecord(true)
+                     .setIgnoreHeaderCase(true)
+                     .setTrim(true)
+                     .get()
+                     .parse(reader)) {
+
+            headers = parser.getHeaderNames();
+
+            if (headers.size() > maxCsvColumns) {
+                throw new BusinessException("列数过多，请检查文件格式。最大支持" + maxCsvColumns + "列");
+            }
+
+            for (int i = 0; i < headers.size(); i++) {
+                columnTypes.add(ColumnDataType.STRING);
+            }
+
+            int count = 0;
+            for (CSVRecord record : parser) {
+                if (count >= limit) break;
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                for (int i = 0; i < headers.size(); i++) {
+                    String value = record.get(i);
+                    row.put(headers.get(i), value);
+
+                    if (count < 20) {
+                        ColumnDataType inferredType = inferColumnType(value);
+                        if (columnTypes.get(i) == ColumnDataType.STRING && inferredType != ColumnDataType.STRING) {
+                            columnTypes.set(i, inferredType);
+                        } else if (columnTypes.get(i) == ColumnDataType.INTEGER && inferredType == ColumnDataType.DOUBLE) {
+                            columnTypes.set(i, ColumnDataType.DOUBLE);
+                        }
+                    }
+                }
+                rows.add(row);
+                count++;
+            }
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("headers", headers);
+        result.put("columnTypes", columnTypes);
+        result.put("rows", rows);
+        result.put("charset", charset.name());
+        result.put("rowCount", rows.size());
+        result.put("columnCount", headers.size());
+
+        return result;
+    }
+
+    @Override
+    public DataLineageResponse getDataLineage(UUID dataSourceId) {
+        UUID tenantId = TenantContext.getTenantId();
+        DataSource dataSource = dataSourceRepository.findByIdAndTenantId(dataSourceId, tenantId)
+                .orElseThrow(() -> new BusinessException("数据源不存在"));
+
+        DataLineageResponse response = new DataLineageResponse();
+
+        DataLineageResponse.DataSourceNode dsNode = new DataLineageResponse.DataSourceNode();
+        dsNode.setId(dataSource.getId());
+        dsNode.setName(dataSource.getName());
+        dsNode.setType(dataSource.getDatabaseType().name());
+        response.setDataSource(dsNode);
+
+        List<DataModel> dataModels = dataModelRepository.findByDataSourceId(dataSourceId);
+        List<DataLineageResponse.DataModelNode> dmNodes = new ArrayList<>();
+        Set<UUID> dataModelIds = new HashSet<>();
+
+        for (DataModel dm : dataModels) {
+            DataLineageResponse.DataModelNode dmNode = new DataLineageResponse.DataModelNode();
+            dmNode.setId(dm.getId());
+            dmNode.setName(dm.getName());
+            dmNode.setDescription(dm.getDescription());
+            dmNode.setDataSourceId(dataSourceId);
+            dmNode.setTableCount(dm.getModelTables() != null ? dm.getModelTables().size() : 0);
+            dmNode.setMeasureCount(dm.getMeasures() != null ? dm.getMeasures().size() : 0);
+            dmNode.setDimensionCount(dm.getDimensionHierarchies() != null ? dm.getDimensionHierarchies().size() : 0);
+            dmNodes.add(dmNode);
+            dataModelIds.add(dm.getId());
+        }
+        response.setDataModels(dmNodes);
+
+        List<Dashboard> dashboards = dashboardRepository.findAll().stream()
+                .filter(d -> d.getTenant().getId().equals(tenantId) && !d.getDeleted())
+                .collect(Collectors.toList());
+
+        List<DataLineageResponse.DashboardNode> dbNodes = new ArrayList<>();
+        for (Dashboard dashboard : dashboards) {
+            Set<UUID> usedModelIds = dashboard.getComponents().stream()
+                    .map(DashboardComponent::getDataModel)
+                    .filter(Objects::nonNull)
+                    .map(DataModel::getId)
+                    .collect(Collectors.toSet());
+
+            for (UUID modelId : usedModelIds) {
+                if (dataModelIds.contains(modelId)) {
+                    DataLineageResponse.DashboardNode dbNode = new DataLineageResponse.DashboardNode();
+                    dbNode.setId(dashboard.getId());
+                    dbNode.setName(dashboard.getName());
+                    dbNode.setDescription(dashboard.getDescription());
+                    dbNode.setDataModelId(modelId);
+                    dbNode.setComponentCount(dashboard.getComponents() != null ?
+                            (int) dashboard.getComponents().stream()
+                                    .filter(c -> c.getDataModel() != null && c.getDataModel().getId().equals(modelId))
+                                    .count() : 0);
+                    dbNode.setIsPublished(dashboard.getIsPublished());
+                    dbNodes.add(dbNode);
+                    break;
+                }
+            }
+        }
+        response.setDashboards(dbNodes);
+
+        return response;
     }
 }

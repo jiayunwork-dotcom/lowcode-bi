@@ -31,11 +31,18 @@ import {
   UploadOutlined,
   EyeOutlined,
   CheckCircleOutlined,
-  CloseCircleOutlined
+  CloseCircleOutlined,
+  LineChartOutlined,
+  SettingOutlined,
+  FileTextOutlined
 } from '@ant-design/icons'
-import type { DataSource } from '@/types'
+import type { DataSource, CsvPreviewResponse } from '@/types'
 import { dataSourceApi } from '@/api'
 import { formatDate, getStatusColor, getStatusText } from '@/utils'
+import CsvPreviewModal from './components/CsvPreviewModal'
+import CsvRefreshConfigModal from './components/CsvRefreshConfigModal'
+import DataLineageModal from './components/DataLineageModal'
+import ChunkedUploader from './components/ChunkedUploader'
 
 const { Option } = Select
 
@@ -56,6 +63,20 @@ const DataSourceList: React.FC = () => {
     clickhouse: 0,
     csv: 0
   })
+
+  const [previewModalVisible, setPreviewModalVisible] = useState(false)
+  const [previewData, setPreviewData] = useState<CsvPreviewResponse | null>(null)
+  const [previewDataSourceId, setPreviewDataSourceId] = useState<string | undefined>()
+  const [previewTableId, setPreviewTableId] = useState<string | undefined>()
+
+  const [refreshConfigVisible, setRefreshConfigVisible] = useState(false)
+  const [refreshConfigDataSource, setRefreshConfigDataSource] = useState<DataSource | null>(null)
+
+  const [lineageVisible, setLineageVisible] = useState(false)
+  const [lineageDataSourceId, setLineageDataSourceId] = useState<string | null>(null)
+
+  const [uploadDataSourceId, setUploadDataSourceId] = useState<string | null>(null)
+  const [uploadModalVisible, setUploadModalVisible] = useState(false)
 
   const loadData = async () => {
     try {
@@ -162,23 +183,84 @@ const DataSourceList: React.FC = () => {
 
   const handleUploadCsv = async (file: File) => {
     try {
-      setUploading(true)
-      setUploadProgress(0)
-      
-      const name = file.name.replace('.csv', '')
-      await dataSourceApi.uploadCsv(file, name, (percent) => {
-        setUploadProgress(percent)
-      })
-      
-      message.success('CSV上传成功')
-      loadData()
+      const preview = await dataSourceApi.previewCsv(file, 20)
+      setPreviewData(preview)
+      setPreviewModalVisible(true)
+      return false
     } catch (error) {
-      console.error('Failed to upload CSV:', error)
-    } finally {
-      setUploading(false)
-      setUploadProgress(0)
+      console.error('Failed to preview CSV:', error)
     }
     return false
+  }
+
+  const handleUploadToDataSource = (record: DataSource) => {
+    if (record.type !== 'CSV') {
+      message.warning('只能上传CSV文件到CSV类型数据源')
+      return
+    }
+    setUploadDataSourceId(record.id)
+    setUploadModalVisible(true)
+  }
+
+  const handlePreviewCsv = async (file: File) => {
+    try {
+      const preview = await dataSourceApi.previewCsv(file, 20)
+      setPreviewData(preview)
+      setPreviewDataSourceId(uploadDataSourceId || undefined)
+      setPreviewModalVisible(true)
+    } catch (error) {
+      console.error('Failed to preview CSV:', error)
+    }
+  }
+
+  const handleChunkUploadSuccess = (result: any) => {
+    if (result.tableId) {
+      setPreviewTableId(result.tableId)
+      setPreviewDataSourceId(uploadDataSourceId || undefined)
+    }
+    setUploadModalVisible(false)
+    loadData()
+  }
+
+  const handleConfigureRefresh = (record: DataSource) => {
+    if (record.type !== 'CSV') {
+      message.warning('只有CSV类型数据源支持自动刷新')
+      return
+    }
+    setRefreshConfigDataSource(record)
+    setRefreshConfigVisible(true)
+  }
+
+  const handleViewLineage = (record: DataSource) => {
+    setLineageDataSourceId(record.id)
+    setLineageVisible(true)
+  }
+
+  const getRefreshStatusIcon = (record: DataSource) => {
+    if (record.type !== 'CSV' || !record.csvRefreshInterval || record.csvRefreshInterval === 'OFF') {
+      return null
+    }
+
+    const status = record.csvLastRefreshStatus
+    if (record.csvRefreshInProgress || status === 'REFRESHING') {
+      return (
+        <Tooltip title="刷新中">
+          <SyncOutlined spin style={{ color: '#faad14', marginLeft: 8 }} />
+        </Tooltip>
+      )
+    }
+    if (status === 'FAILED') {
+      return (
+        <Tooltip title={`上次刷新失败: ${record.csvLastRefreshError || '未知错误'}`}>
+          <CloseCircleOutlined style={{ color: '#ff4d4f', marginLeft: 8 }} />
+        </Tooltip>
+      )
+    }
+    return (
+      <Tooltip title={`刷新正常 - 上次: ${record.csvLastImportTime || '未知'}`}>
+        <CheckCircleOutlined style={{ color: '#52c41a', marginLeft: 8 }} />
+      </Tooltip>
+    )
   }
 
   const columns: any = [
@@ -190,6 +272,7 @@ const DataSourceList: React.FC = () => {
         <Space>
           <DatabaseOutlined style={{ color: getDbTypeColor(record.type) }} />
           <span>{text}</span>
+          {getRefreshStatusIcon(record)}
         </Space>
       )
     },
@@ -248,7 +331,7 @@ const DataSourceList: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 320,
       render: (_: any, record: DataSource) => (
         <Space size="small">
           <Tooltip title="测试连接">
@@ -273,6 +356,34 @@ const DataSourceList: React.FC = () => {
               size="small"
               icon={<EyeOutlined />}
               onClick={() => viewTables(record)}
+            />
+          </Tooltip>
+          {record.type === 'CSV' && (
+            <Tooltip title="上传CSV">
+              <Button
+                type="text"
+                size="small"
+                icon={<FileTextOutlined />}
+                onClick={() => handleUploadToDataSource(record)}
+              />
+            </Tooltip>
+          )}
+          {record.type === 'CSV' && (
+            <Tooltip title="刷新配置">
+              <Button
+                type="text"
+                size="small"
+                icon={<SettingOutlined />}
+                onClick={() => handleConfigureRefresh(record)}
+              />
+            </Tooltip>
+          )}
+          <Tooltip title="数据血缘">
+            <Button
+              type="text"
+              size="small"
+              icon={<LineChartOutlined />}
+              onClick={() => handleViewLineage(record)}
             />
           </Tooltip>
           <Tooltip title="编辑">
@@ -623,6 +734,49 @@ const DataSourceList: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Modal
+        title="上传CSV文件"
+        open={uploadModalVisible}
+        onCancel={() => setUploadModalVisible(false)}
+        width={600}
+        footer={null}
+      >
+        <ChunkedUploader
+          dataSourceId={uploadDataSourceId || ''}
+          onPreview={handlePreviewCsv}
+          onSuccess={handleChunkUploadSuccess}
+          onError={() => {}}
+        />
+      </Modal>
+
+      <CsvPreviewModal
+        visible={previewModalVisible}
+        onCancel={() => setPreviewModalVisible(false)}
+        previewData={previewData}
+        dataSourceId={previewDataSourceId}
+        tableId={previewTableId}
+        onSuccess={() => {
+          setPreviewModalVisible(false)
+          loadData()
+        }}
+      />
+
+      <CsvRefreshConfigModal
+        visible={refreshConfigVisible}
+        onCancel={() => setRefreshConfigVisible(false)}
+        dataSource={refreshConfigDataSource}
+        onSuccess={() => {
+          setRefreshConfigVisible(false)
+          loadData()
+        }}
+      />
+
+      <DataLineageModal
+        visible={lineageVisible}
+        onCancel={() => setLineageVisible(false)}
+        dataSourceId={lineageDataSourceId}
+      />
     </div>
   )
 }

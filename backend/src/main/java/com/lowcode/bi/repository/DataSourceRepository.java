@@ -30,4 +30,7 @@ public interface DataSourceRepository extends JpaRepository<DataSource, UUID> {
     long countByTenantId(@Param("tenantId") UUID tenantId);
 
     boolean existsByNameAndTenantIdAndDeletedFalse(String name, UUID tenantId);
+
+    @Query("SELECT ds FROM DataSource ds WHERE ds.databaseType = :type AND ds.deleted = false")
+    List<DataSource> findByDatabaseType(@Param("type") DatabaseType type);
 }
