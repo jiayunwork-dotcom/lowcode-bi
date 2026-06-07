@@ -1,0 +1,145 @@
+spring:
+  application:
+    name: lowcode-bi-platform
+
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:lowcode_bi}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: ${SHOW_SQL:false}
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  cache:
+    type: caffeine
+    caffeine:
+      spec: maximumSize=10000, expireAfterWrite=300s
+
+  mail:
+    host: ${SMTP_HOST:smtp.example.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USER:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 100MB
+      file-size-threshold: 2MB
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: LowCodeBIQuartzScheduler
+            instanceId: AUTO
+          jobStore:
+            class: org.springframework.scheduling.quartz.LocalDataSourceJobStore
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.PostgreSQLDelegate
+            useProperties: true
+            misfireThreshold: 60000
+            clusterCheckinInterval: 20000
+            isClustered: true
+          threadPool:
+            class: org.quartz.simpl.SimpleThreadPool
+            threadCount: 20
+            threadPriority: 5
+
+server:
+  port: ${SERVER_PORT:8080}
+  servlet:
+    context-path: /api
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+
+app:
+  security:
+    jwt:
+      secret: ${JWT_SECRET:your-256-bit-secret-key-here-must-be-at-least-32-characters-long}
+      expiration: ${JWT_EXPIRATION:86400000}
+      embed-expiration: ${JWT_EMBED_EXPIRATION:3600000}
+
+  datasource:
+    tenant:
+      max-connections: 20
+      queue-timeout: 10000
+      query-timeout: 60000
+      connection-wait-timeout: 10000
+
+  query:
+    cache:
+      enabled: true
+      default-ttl: 300
+      max-size: 10000
+    max-rows: 10000
+    sample-threshold: 5000
+    timeout: 60
+
+  export:
+    csv:
+      max-columns: 500
+      encoding: UTF-8
+
+  screenshot:
+    width: 1920
+    height: 1080
+    timeout: 30000
+    element-timeout: 30000
+
+  dashboard:
+    auto-refresh:
+      max-failures: 3
+      notify-admins: true
+
+logging:
+  level:
+    root: ${LOG_LEVEL:INFO}
+    com.lowcode.bi: ${LOG_LEVEL:DEBUG}
+    org.springframework.security: ${LOG_LEVEL:INFO}
+    org.hibernate.SQL: ${SQL_LOG_LEVEL:DEBUG}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"

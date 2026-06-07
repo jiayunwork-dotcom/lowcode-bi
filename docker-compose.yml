@@ -1,0 +1,134 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lowcode-bi-postgres
+    environment:
+      POSTGRES_DB: lowcode_bi
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres123
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/sql:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    networks:
+      - bi-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:23-alpine
+    container_name: lowcode-bi-clickhouse
+    environment:
+      CLICKHOUSE_DB: lowcode_bi
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: clickhouse123
+      TZ: Asia/Shanghai
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    ports:
+      - "8123:8123"
+      - "9000:9000"
+    networks:
+      - bi-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8123/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  redis:
+    image: redis:7-alpine
+    container_name: lowcode-bi-redis
+    command: redis-server --requirepass redis123 --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - bi-network
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lowcode-bi-backend
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/lowcode_bi
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres123
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PASSWORD: redis123
+      SPRING_DATA_REDIS_PORT: 6379
+      BI_CLICKHOUSE_HOST: clickhouse
+      BI_CLICKHOUSE_PORT: 8123
+      BI_CLICKHOUSE_DATABASE: lowcode_bi
+      BI_CLICKHOUSE_USERNAME: default
+      BI_CLICKHOUSE_PASSWORD: clickhouse123
+      BI_JWT_SECRET: your-super-secret-key-change-in-production-please
+      TZ: Asia/Shanghai
+    volumes:
+      - ./backend/src/main/resources:/app/resources
+      - ./logs:/app/logs
+    ports:
+      - "8080:8080"
+    networks:
+      - bi-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: lowcode-bi-frontend
+    volumes:
+      - ./deploy/nginx.conf:/etc/nginx/nginx.conf
+    ports:
+      - "80:80"
+    networks:
+      - bi-network
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  chrome:
+    image: selenium/standalone-chrome:latest
+    container_name: lowcode-bi-chrome
+    environment:
+      - SE_NODE_MAX_SESSIONS=5
+      - SE_NODE_OVERRIDE_MAX_SESSIONS=true
+      - SE_OPTS=--log-level=WARNING
+      - TZ=Asia/Shanghai
+    ports:
+      - "4444:4444"
+      - "7900:7900"
+    networks:
+      - bi-network
+    shm_size: 2g
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  clickhouse_data:
+  redis_data:
+
+networks:
+  bi-network:
+    driver: bridge
