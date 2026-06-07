@@ -95,7 +95,7 @@ const MainLayout: React.FC<MainLayoutProps> = () => {
     }
   ]
 
-  const filterMenuItems = (items: any[], userRole: string | null) => {
+  const filterMenuItems = (items: any[], userRole: string | null): any[] => {
     return items
       .filter(item => {
         if (!item.roles) return true

@@ -24,7 +24,7 @@ import {
   EditOutlined,
   DownOutlined,
   UpOutlined,
-  DrillDownOutlined
+  VerticalAlignBottomOutlined
 } from '@ant-design/icons'
 import { useParams, useNavigate } from 'react-router-dom'
 import type {
@@ -48,8 +48,15 @@ interface ComponentDataState {
   error?: string
 }
 
-const DashboardViewer: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
+interface DashboardViewerProps {
+  dashboardId?: string
+  embedMode?: boolean
+  embedConfig?: any
+}
+
+const DashboardViewer: React.FC<DashboardViewerProps> = ({ dashboardId, embedMode = false, embedConfig }) => {
+  const { id: paramId } = useParams<{ id: string }>()
+  const id = dashboardId || paramId
   const navigate = useNavigate()
   
   const [dashboard, setDashboard] = useState<Dashboard | null>(null)
@@ -62,7 +69,7 @@ const DashboardViewer: React.FC = () => {
   const [componentData, setComponentData] = useState<Record<string, ComponentDataState>>({})
   const [drillDownContext, setDrillDownContext] = useState<Record<string, DrillDownContext>>({})
   const [showScheduleModal, setShowScheduleModal] = useState(false)
-  const autoRefreshTimer = useRef<NodeJS.Timeout | null>(null)
+  const autoRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadDashboard = useCallback(async () => {
     if (!id) return

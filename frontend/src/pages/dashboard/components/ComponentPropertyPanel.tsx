@@ -260,8 +260,8 @@ const ComponentPropertyPanel: React.FC<ComponentPropertyPanelProps> = ({
 
             <Form.Item name="colorPalette" label="配色方案">
               <ColorPicker
-                mode="multiple"
-                defaultValue={['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de']}
+                mode={'multiple' as any}
+                defaultValue={['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de'] as any}
                 format="hex"
               />
             </Form.Item>
@@ -347,7 +347,7 @@ const ComponentPropertyPanel: React.FC<ComponentPropertyPanelProps> = ({
               >
                 {(() => {
                   const tab = component._tab || { components: [] }
-                  return tab.components?.filter(c => c.id !== component.id).map(c => (
+                  return tab.components?.filter((c: DashboardComponent) => c.id !== component.id).map((c: DashboardComponent) => (
                     <Option key={c.id} value={c.id}>{c.title}</Option>
                   )) || []
                 })()}

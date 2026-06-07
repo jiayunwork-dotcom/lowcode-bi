@@ -108,7 +108,7 @@ const DataModelList: React.FC = () => {
     }
   }
 
-  const columns = [
+  const columns: any = [
     {
       title: '模型名称',
       dataIndex: 'name',

@@ -27,7 +27,7 @@ import {
   MoreOutlined,
   ClockCircleOutlined,
   CheckCircleOutlined,
-  TemplateOutlined,
+  AppstoreOutlined,
   DashboardOutlined
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -173,7 +173,7 @@ const DashboardList: React.FC = () => {
       {
         key: 'template',
         label: '设为模板',
-        icon: <TemplateOutlined />,
+        icon: <AppstoreOutlined />,
         onClick: () => handleSetTemplate(record.id)
       },
       {
@@ -202,7 +202,7 @@ const DashboardList: React.FC = () => {
       <div className="page-header">
         <h1 className="page-title">仪表板管理</h1>
         <div className="page-actions">
-          <Button icon={<TemplateOutlined />} onClick={handleCreateFromTemplate}>
+          <Button icon={<AppstoreOutlined />} onClick={handleCreateFromTemplate}>
             从模板创建
           </Button>
           <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>

@@ -29,7 +29,7 @@ import {
   FileTextOutlined,
   DownloadOutlined,
   HistoryOutlined,
-  ParameterOutlined,
+  SlidersOutlined,
   ClearOutlined
 } from '@ant-design/icons'
 import Editor from '@monaco-editor/react'
@@ -131,6 +131,7 @@ const SqlEditor: React.FC = () => {
       }
     }
 
+    const startTime = Date.now()
     try {
       setLoading(true)
       setResult(null)
@@ -141,8 +142,6 @@ const SqlEditor: React.FC = () => {
       params.forEach(p => {
         paramMap[p.name] = p.value
       })
-
-      const startTime = Date.now()
       const resultData = await queryApi.execute({
         sql,
         dataSourceId: selectedDataSource,
@@ -356,7 +355,7 @@ const SqlEditor: React.FC = () => {
 
             <Tooltip title="参数设置">
               <Button
-                icon={<ParameterOutlined />}
+                icon={<SlidersOutlined />}
                 onClick={() => setParamsModalVisible(true)}
               >
                 参数

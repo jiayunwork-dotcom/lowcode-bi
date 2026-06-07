@@ -181,7 +181,7 @@ const DataSourceList: React.FC = () => {
     return false
   }
 
-  const columns = [
+  const columns: any = [
     {
       title: '名称',
       dataIndex: 'name',

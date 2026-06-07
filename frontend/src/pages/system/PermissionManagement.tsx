@@ -59,7 +59,7 @@ const PermissionManagement: React.FC = () => {
       const data = await permissionApi.getDashboardPermissions(dashboardId)
       setDashboardPermissions(prev => ({
         ...prev,
-        [dashboardId]: data
+        [dashboardId]: data as DashboardPermission[]
       }))
     } catch (error) {
       console.error('Failed to load dashboard permissions:', error)
@@ -337,8 +337,8 @@ const PermissionManagement: React.FC = () => {
 
       <Card
         tabList={[
-          { key: 'row', tab: '行级数据权限' },
-          { key: 'dashboard', tab: '仪表板权限' }
+          { key: 'row' as const, tab: '行级数据权限' },
+          { key: 'dashboard' as const, tab: '仪表板权限' }
         ]}
         activeTabKey={activeTab}
         onTabChange={(key) => setActiveTab(key as 'row' | 'dashboard')}
@@ -383,10 +383,10 @@ const PermissionManagement: React.FC = () => {
                       placeholder="添加用户权限"
                       style={{ width: '100%' }}
                       onSelect={(userId) => {
-                        handleSetDashboardPermission(dashboard.id, userId, 'VIEW')
+                        handleSetDashboardPermission(dashboard.id, userId as string, 'VIEW')
                       }}
                       filterOption={(input, option) =>
-                        (option?.label as string).toLowerCase().includes(input.toLowerCase())
+                        String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
                       }
                       options={users.filter(u =>
                         !dashboardPermissions[dashboard.id]?.some(p => p.userId === u.id)

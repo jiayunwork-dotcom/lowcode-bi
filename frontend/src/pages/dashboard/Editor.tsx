@@ -560,15 +560,10 @@ const DashboardEditor: React.FC = () => {
             activeKey={activeTabIndex.toString()}
             onChange={(key) => setActiveTabIndex(parseInt(key))}
             type="editable-card"
-            onEdit={(targetKey, action) => {
+            onEdit={(targetKey: any, action: any) => {
               if (action === 'add') {
                 handleAddTab()
               } else if (action === 'remove') {
-                handleDeleteTab(parseInt(targetKey as string))
-              }
-            }}
-            onTabEdit={(targetKey, action) => {
-              if (action === 'remove') {
                 handleDeleteTab(parseInt(targetKey as string))
               }
             }}

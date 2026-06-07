@@ -6,6 +6,7 @@ export interface User {
   tenantId: string
   tenantName?: string
   status: 'ACTIVE' | 'INACTIVE'
+  avatar?: string
   createdAt: string
   updatedAt: string
 }
@@ -169,6 +170,7 @@ export interface DashboardComponent {
   config: ComponentConfig
   filters: ComponentFilter[]
   linkedComponents: string[]
+  _tab?: { components: DashboardComponent[] }
 }
 
 export interface ComponentConfig {
@@ -233,12 +235,12 @@ export interface ComponentFilter {
 }
 
 export interface DashboardPermission {
-  id: string
-  dashboardId: string
+  id?: string
+  dashboardId?: string
   userId: string
   userName?: string
   permission: 'VIEW' | 'EDIT' | 'OWNER'
-  createdAt: string
+  createdAt?: string
 }
 
 export interface ScheduleConfig {

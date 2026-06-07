@@ -517,10 +517,10 @@ public class DataSourceServiceImpl implements DataSourceService {
                 Files.copy(is, targetPath, StandardCopyOption.REPLACE_EXISTING);
             }
 
-            List<Map<String, Object>> previewData = previewCsv(file, 100);
+            Map<String, Object> previewData = previewCsv(file, 100);
 
             @SuppressWarnings("unchecked")
-            List<String> headers = (List<String>) previewData.get(0).get("headers");
+            List<String> headers = (List<String>) previewData.get("headers");
             @SuppressWarnings("unchecked")
             List<ColumnDataType> columnTypes = (List<ColumnDataType>) previewData.get("columnTypes");
             @SuppressWarnings("unchecked")
@@ -748,7 +748,7 @@ public class DataSourceServiceImpl implements DataSourceService {
 
     @Override
     public Map<String, Object> getConnectionPoolStatus(UUID tenantId) {
-        DataSourcePoolConfig.TenantConnectionPool pool = poolConfig.getTenantPool(tenantId));
+        DataSourcePoolConfig.TenantConnectionPool pool = poolConfig.getTenantPool(tenantId);
 
         Map<String, Object> status = new HashMap<>();
         status.put("activeConnections", pool.getActiveConnections());
@@ -759,12 +759,12 @@ public class DataSourceServiceImpl implements DataSourceService {
         List<Map<String, Object>> dsStatusList = new ArrayList<>();
 
         for (DataSource ds : dataSources) {
-            if (ds.getDatabaseType() != DatabaseType.CSV) {
+            if (ds.getDatabaseType() == DatabaseType.CSV) {
                 continue;
             }
 
             String key = getDataSourceKey(ds.getId());
-            HikariDataSource hikariDs = poolConfig.getDataSource(key));
+            HikariDataSource hikariDs = poolConfig.getDataSource(key);
 
             if (hikariDs != null) {
                 Map<String, Object> dsStatus = new HashMap<>();

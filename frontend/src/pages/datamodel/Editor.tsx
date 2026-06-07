@@ -15,7 +15,9 @@ import {
   Card,
   Empty,
   Tooltip,
-  Divider
+  Divider,
+  Row,
+  Col
 } from 'antd'
 import {
   PlusOutlined,
@@ -65,10 +67,8 @@ const DataModelEditor: React.FC = () => {
     if (!id) return
     try {
       setLoading(true)
-      const [modelData, dsTables] = await Promise.all([
-        dataModelApi.getById(id),
-        dataSourceApi.getTables(modelData.dataSourceId)
-      ])
+      const modelData = await dataModelApi.getById(id)
+      const dsTables = await dataSourceApi.getTables(modelData.dataSourceId)
       setModel(modelData)
       setTables(modelData.tables || [])
       setRelations(modelData.relations || [])

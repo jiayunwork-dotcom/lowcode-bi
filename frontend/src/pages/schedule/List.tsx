@@ -216,7 +216,7 @@ const ScheduleList: React.FC = () => {
     return cron
   }
 
-  const columns = [
+  const columns: any = [
     {
       title: '任务名称',
       dataIndex: 'name',

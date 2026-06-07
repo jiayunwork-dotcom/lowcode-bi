@@ -79,7 +79,7 @@ const RoleManagement: React.FC = () => {
     }
   }
 
-  const handleUpdateRole = async (userId: string, role: string) => {
+  const handleUpdateRole = async (userId: string, role: 'ADMIN' | 'EDITOR' | 'VIEWER') => {
     try {
       await userApi.update(userId, { role })
       message.success('角色更新成功')
@@ -90,7 +90,7 @@ const RoleManagement: React.FC = () => {
     }
   }
 
-  const handleUpdateStatus = async (userId: string, status: string) => {
+  const handleUpdateStatus = async (userId: string, status: 'ACTIVE' | 'INACTIVE') => {
     try {
       await userApi.update(userId, { status })
       message.success('状态更新成功')
@@ -153,7 +153,7 @@ const RoleManagement: React.FC = () => {
           value={role}
           size="small"
           style={{ width: 100 }}
-          onChange={(value) => handleUpdateRole(record.id, value)}
+          onChange={(value) => handleUpdateRole(record.id, value as 'ADMIN' | 'EDITOR' | 'VIEWER')}
         >
           <Option value="ADMIN">
             <Tag color={roleColors.ADMIN}>{roleLabels.ADMIN}</Tag>

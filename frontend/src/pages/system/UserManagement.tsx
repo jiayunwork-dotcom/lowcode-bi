@@ -14,7 +14,8 @@ import {
   Row,
   Col,
   Statistic,
-  Switch
+  Switch,
+  Avatar
 } from 'antd'
 import {
   PlusOutlined,

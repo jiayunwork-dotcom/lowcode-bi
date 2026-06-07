@@ -129,7 +129,7 @@ export const http = {
       params,
       responseType: 'blob'
     }).then((response) => {
-      const blob = new Blob([response])
+      const blob = new Blob([response.data])
       const link = document.createElement('a')
       link.href = URL.createObjectURL(blob)
       link.download = filename || 'download'
