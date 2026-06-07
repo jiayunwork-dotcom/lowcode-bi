@@ -411,6 +411,7 @@ export interface CsvPreviewResponse {
   columnCount: number
   fileName: string
   fileSize: number
+  tableId?: string
 }
 
 export type ColumnDataType = 'STRING' | 'INTEGER' | 'LONG' | 'DOUBLE' | 'DECIMAL' | 'BOOLEAN' | 'DATE' | 'DATETIME' | 'TIMESTAMP' | 'TEXT' | 'BINARY' | 'JSON'
@@ -444,6 +445,13 @@ export interface DashboardNode {
   dataModelId: string
   componentCount: number
   isPublished: boolean
+}
+
+export interface CsvUploadResponse {
+  success: boolean
+  tableId?: string
+  dataSource?: DataSource
+  message?: string
 }
 
 export interface FileChunkUploadResponse {

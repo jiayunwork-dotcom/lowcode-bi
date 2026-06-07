@@ -68,6 +68,7 @@ const DataSourceList: React.FC = () => {
   const [previewData, setPreviewData] = useState<CsvPreviewResponse | null>(null)
   const [previewDataSourceId, setPreviewDataSourceId] = useState<string | undefined>()
   const [previewTableId, setPreviewTableId] = useState<string | undefined>()
+  const [previewFile, setPreviewFile] = useState<File | null>(null)
 
   const [refreshConfigVisible, setRefreshConfigVisible] = useState(false)
   const [refreshConfigDataSource, setRefreshConfigDataSource] = useState<DataSource | null>(null)
@@ -185,6 +186,9 @@ const DataSourceList: React.FC = () => {
     try {
       const preview = await dataSourceApi.previewCsv(file, 20)
       setPreviewData(preview)
+      setPreviewFile(file)
+      setPreviewDataSourceId(undefined)
+      setPreviewTableId(undefined)
       setPreviewModalVisible(true)
       return false
     } catch (error) {
@@ -206,7 +210,9 @@ const DataSourceList: React.FC = () => {
     try {
       const preview = await dataSourceApi.previewCsv(file, 20)
       setPreviewData(preview)
+      setPreviewFile(file)
       setPreviewDataSourceId(uploadDataSourceId || undefined)
+      setPreviewTableId(undefined)
       setPreviewModalVisible(true)
     } catch (error) {
       console.error('Failed to preview CSV:', error)
@@ -756,8 +762,10 @@ const DataSourceList: React.FC = () => {
         previewData={previewData}
         dataSourceId={previewDataSourceId}
         tableId={previewTableId}
+        file={previewFile}
         onSuccess={() => {
           setPreviewModalVisible(false)
+          setPreviewFile(null)
           loadData()
         }}
       />

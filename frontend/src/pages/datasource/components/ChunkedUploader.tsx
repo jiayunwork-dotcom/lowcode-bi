@@ -27,6 +27,8 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
   const [totalChunks, setTotalChunks] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [failedChunks, setFailedChunks] = useState<number[]>([])
+  const [currentFile, setCurrentFile] = useState<File | null>(null)
+  const [currentFileId, setCurrentFileId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const generateFileId = (file: File): string => {
@@ -85,6 +87,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
     setProgress(0)
     setError(null)
     setFailedChunks([])
+    setCurrentFile(file)
 
     try {
       if (file.size <= LARGE_FILE_THRESHOLD) {
@@ -93,10 +96,12 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
         })
         message.success('CSV上传成功')
         onSuccess({})
+        setCurrentFile(null)
         return
       }
 
       const fileId = generateFileId(file)
+      setCurrentFileId(fileId)
       const total = Math.ceil(file.size / CHUNK_SIZE)
       setTotalChunks(total)
 
@@ -140,6 +145,10 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
       setProgress(100)
       message.success('CSV上传成功')
       onSuccess(mergeResult)
+      setCurrentFile(null)
+      setCurrentFileId(null)
+      setFailedChunks([])
+      setUploading(false)
 
     } catch (error) {
       console.error('上传失败:', error)
@@ -153,10 +162,13 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
   }
 
   const handleRetryFailed = async () => {
-    if (!fileInputRef.current?.files?.[0] || failedChunks.length === 0) return
+    if (!currentFile || !currentFileId || failedChunks.length === 0) {
+      message.error('无法重试，请重新选择文件上传')
+      return
+    }
 
-    const file = fileInputRef.current.files[0]
-    const fileId = generateFileId(file)
+    const file = currentFile
+    const fileId = currentFileId
     const total = Math.ceil(file.size / CHUNK_SIZE)
 
     setError(null)
@@ -182,6 +194,7 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
     if (remainingFailed.length === 0) {
       try {
         setProgress(95)
+        message.info('所有分片上传完成，正在合并文件...')
         const mergeResult = await dataSourceApi.mergeChunks(
           dataSourceId,
           fileId,
@@ -194,11 +207,13 @@ const ChunkedUploader: React.FC<ChunkedUploaderProps> = ({
         onSuccess(mergeResult)
         setFailedChunks([])
         setUploading(false)
+        setCurrentFile(null)
+        setCurrentFileId(null)
       } catch (error) {
         setError('文件合并失败: ' + (error as Error).message)
       }
     } else {
-      setError(`仍有 ${remainingFailed.length} 个分片上传失败`)
+      setError(`仍有 ${remainingFailed.length} 个分片上传失败，可以再次点击重试`)
     }
   }
 

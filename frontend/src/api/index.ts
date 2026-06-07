@@ -18,6 +18,7 @@ import type {
   RowPermissionRule,
   PreAggregation,
   CsvPreviewResponse,
+  CsvUploadResponse,
   ColumnDataType,
   DataLineageResponse,
   FileChunkUploadResponse
@@ -84,7 +85,7 @@ export const dataSourceApi = {
   syncMetadata: (id: string) => http.post(`/data-sources/${id}/sync-metadata`),
   
   uploadCsv: (id: string, file: File, onProgress?: (percent: number) => void) =>
-    http.upload<DataSource>(`/data-sources/${id}/upload-csv`, file, {}, onProgress),
+    http.upload<CsvUploadResponse>(`/data-sources/${id}/upload-csv`, file, {}, onProgress),
   
   previewCsv: (file: File, limit = 20) =>
     http.upload<CsvPreviewResponse>('/data-sources/preview-csv-enhanced', file, { limit }),

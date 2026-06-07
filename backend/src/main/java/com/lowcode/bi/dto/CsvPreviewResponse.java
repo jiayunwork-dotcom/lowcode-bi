@@ -16,4 +16,5 @@ public class CsvPreviewResponse {
     private int columnCount;
     private String fileName;
     private long fileSize;
+    private UUID tableId;
 }

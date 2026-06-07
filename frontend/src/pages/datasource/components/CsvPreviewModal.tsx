@@ -10,6 +10,7 @@ interface CsvPreviewModalProps {
   previewData: CsvPreviewResponse | null
   dataSourceId?: string
   tableId?: string
+  file?: File | null
   onTypesUpdated?: () => void
   onSuccess?: () => void
 }
@@ -41,12 +42,18 @@ const CsvPreviewModal: React.FC<CsvPreviewModalProps> = ({
   onCancel,
   previewData,
   dataSourceId,
-  tableId,
+  tableId: propTableId,
+  file,
   onTypesUpdated,
   onSuccess
 }) => {
   const [columnTypes, setColumnTypes] = useState<ColumnDataType[]>([])
   const [saving, setSaving] = useState(false)
+  const [tableId, setTableId] = useState<string | undefined>(propTableId)
+
+  useEffect(() => {
+    setTableId(propTableId || previewData?.tableId)
+  }, [propTableId, previewData])
 
   useEffect(() => {
     if (previewData) {
@@ -61,8 +68,8 @@ const CsvPreviewModal: React.FC<CsvPreviewModalProps> = ({
   }
 
   const handleSaveTypes = async () => {
-    if (!dataSourceId || !tableId) {
-      message.error('缺少数据源或表ID')
+    if (!dataSourceId) {
+      message.error('缺少数据源ID')
       return
     }
 
@@ -73,13 +80,32 @@ const CsvPreviewModal: React.FC<CsvPreviewModalProps> = ({
         typeMap[header] = columnTypes[index]
       })
 
-      await dataSourceApi.updateColumnTypes(dataSourceId, tableId, typeMap)
+      let currentTableId = tableId
+
+      if (!currentTableId && file) {
+        message.info('正在上传CSV文件...')
+        const uploadResult = await dataSourceApi.uploadCsv(dataSourceId, file)
+        if (uploadResult.tableId) {
+          currentTableId = uploadResult.tableId
+          setTableId(currentTableId)
+        } else {
+          throw new Error('上传失败，未获取到表ID')
+        }
+      }
+
+      if (!currentTableId) {
+        message.error('缺少表ID，请先上传文件')
+        return
+      }
+
+      await dataSourceApi.updateColumnTypes(dataSourceId, currentTableId, typeMap)
       message.success('列类型保存成功')
       onTypesUpdated?.()
       onSuccess?.()
       onCancel()
     } catch (error) {
       console.error('Failed to save column types:', error)
+      message.error('保存失败: ' + (error as Error).message)
     } finally {
       setSaving(false)
     }
@@ -135,9 +161,9 @@ const CsvPreviewModal: React.FC<CsvPreviewModalProps> = ({
           type="primary"
           onClick={handleSaveTypes}
           loading={saving}
-          disabled={!dataSourceId || !tableId}
+          disabled={!dataSourceId || (!tableId && !file)}
         >
-          保存列类型
+          {tableId ? '保存列类型' : '确认上传并保存'}
         </Button>
       ]}
     >
