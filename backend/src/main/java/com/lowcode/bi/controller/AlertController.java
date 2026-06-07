@@ -118,4 +118,17 @@ public class AlertController {
     public ResponseEntity<AlertStatisticsResponse> getStatistics() {
         return ResponseEntity.ok(alertRuleService.getStatistics());
     }
+
+    @GetMapping("/events/groups")
+    public ResponseEntity<List<AlertEventGroupResponse>> getEventGroups(
+            @RequestParam(required = false) AlertSeverity severity,
+            @RequestParam(required = false) UUID dataModelId,
+            @RequestParam(required = false, defaultValue = "lastTriggered") String sortBy) {
+        return ResponseEntity.ok(alertRuleService.getEventGroups(severity, dataModelId, sortBy));
+    }
+
+    @GetMapping("/rules/{id}/timeline")
+    public ResponseEntity<List<AlertEventTimelineItem>> getEventTimeline(@PathVariable UUID id) {
+        return ResponseEntity.ok(alertRuleService.getEventTimeline(id));
+    }
 }

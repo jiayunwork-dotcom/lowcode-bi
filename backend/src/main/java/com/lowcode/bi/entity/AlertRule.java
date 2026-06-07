@@ -85,4 +85,23 @@ public class AlertRule extends BaseEntity {
 
     @OneToMany(mappedBy = "alertRule", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private Set<AlertEvent> events = new HashSet<>();
+
+    @Column(name = "escalation_enabled", nullable = false)
+    private Boolean escalationEnabled = false;
+
+    @Column(name = "escalation_threshold", nullable = false)
+    private Integer escalationThreshold = 3;
+
+    @Column(name = "consecutive_trigger_count", nullable = false)
+    private Integer consecutiveTriggerCount = 0;
+
+    @Column(name = "escalation_level", nullable = false)
+    private Integer escalationLevel = 0;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "current_severity", length = 32, nullable = false)
+    private AlertSeverity currentSeverity = AlertSeverity.WARNING;
+
+    @OneToMany(mappedBy = "alertRule", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    private Set<AlertEscalationRecipient> escalationRecipients = new HashSet<>();
 }

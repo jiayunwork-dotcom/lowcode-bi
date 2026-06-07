@@ -34,9 +34,12 @@ import {
   ExclamationCircleOutlined,
   InfoCircleOutlined,
   EyeOutlined,
-  LinkOutlined
+  LinkOutlined,
+  FireOutlined,
+  RiseOutlined,
+  ArrowUpOutlined
 } from '@ant-design/icons'
-import { alertApi, dataModelApi } from '@/api'
+import { alertApi, dataModelApi, userApi } from '@/api'
 import type {
   AlertRule,
   AlertEvent,
@@ -46,7 +49,9 @@ import type {
   AlertCheckInterval,
   NotificationChannel,
   DataModel,
-  Measure
+  Measure,
+  User,
+  EscalationRecipient
 } from '@/types'
 import AlertEventDetail from './components/AlertEventDetail'
 
@@ -72,6 +77,8 @@ const AlertRuleManagement: React.FC = () => {
   const [showEventDetail, setShowEventDetail] = useState<AlertEvent | null>(null)
   const [subscribedRules, setSubscribedRules] = useState<AlertRule[]>([])
   const [subscribedTotal, setSubscribedTotal] = useState(0)
+  const [users, setUsers] = useState<User[]>([])
+  const [escalationRecipients, setEscalationRecipients] = useState<string[]>([])
 
   const loadRules = useCallback(async () => {
     setLoading(true)
@@ -109,6 +116,15 @@ const AlertRuleManagement: React.FC = () => {
     }
   }, [])
 
+  const loadUsers = useCallback(async () => {
+    try {
+      const data = await userApi.getList()
+      setUsers(data || [])
+    } catch (error) {
+      console.error('Failed to load users:', error)
+    }
+  }, [])
+
   const loadMeasures = useCallback(async (dataModelId: string) => {
     try {
       const data = await dataModelApi.getFields(dataModelId)
@@ -122,7 +138,8 @@ const AlertRuleManagement: React.FC = () => {
   useEffect(() => {
     loadRules()
     loadDataModels()
-  }, [loadRules, loadDataModels])
+    loadUsers()
+  }, [loadRules, loadDataModels, loadUsers])
 
   useEffect(() => {
     if (activeTab === 'subscribed') {
@@ -139,6 +156,7 @@ const AlertRuleManagement: React.FC = () => {
     setChannels([
       { type: 'IN_APP', config: {}, enabled: true }
     ])
+    setEscalationRecipients([])
     form.resetFields()
     form.setFieldsValue({
       triggerType: 'VALUE',
@@ -146,7 +164,9 @@ const AlertRuleManagement: React.FC = () => {
       checkInterval: 'EVERY_HOUR',
       silencePeriod: 300,
       severity: 'WARNING',
-      isEnabled: true
+      isEnabled: true,
+      escalationEnabled: false,
+      escalationThreshold: 3
     })
     setModalVisible(true)
   }
@@ -154,6 +174,7 @@ const AlertRuleManagement: React.FC = () => {
   const handleEdit = (rule: AlertRule) => {
     setEditingRule(rule)
     setChannels(rule.notificationChannels || [])
+    setEscalationRecipients(rule.escalationRecipients?.map(r => r.userId) || [])
     handleDataModelChange(rule.dataModelId)
     form.setFieldsValue({
       name: rule.name,
@@ -166,7 +187,9 @@ const AlertRuleManagement: React.FC = () => {
       checkInterval: rule.checkInterval,
       silencePeriod: rule.silencePeriod,
       severity: rule.severity,
-      isEnabled: rule.isEnabled
+      isEnabled: rule.isEnabled,
+      escalationEnabled: rule.escalationEnabled || false,
+      escalationThreshold: rule.escalationThreshold || 3
     })
     setModalVisible(true)
   }
@@ -204,7 +227,8 @@ const AlertRuleManagement: React.FC = () => {
 
       const requestData = {
         ...values,
-        notificationChannels: channels
+        notificationChannels: channels,
+        escalationRecipientUserIds: values.escalationEnabled ? escalationRecipients : []
       }
 
       if (editingRule) {
@@ -387,10 +411,49 @@ const AlertRuleManagement: React.FC = () => {
       dataIndex: 'severity',
       key: 'severity',
       width: 100,
-      render: (severity: AlertSeverity) => (
-        <Tag color={getSeverityColor(severity)}>
-          {getSeverityText(severity)}
-        </Tag>
+      render: (severity: AlertSeverity, record: AlertRule) => (
+        <Space direction="vertical" size={2}>
+          <Tag color={getSeverityColor(severity)}>
+            {getSeverityText(severity)}
+          </Tag>
+          {record.currentSeverity && record.currentSeverity !== severity && (
+            <Tag color="red" style={{ fontSize: 11 }}>
+              当前: {getSeverityText(record.currentSeverity)}
+            </Tag>
+          )}
+        </Space>
+      )
+    },
+    {
+      title: '连续触发',
+      dataIndex: 'consecutiveTriggerCount',
+      key: 'consecutiveTriggerCount',
+      width: 90,
+      render: (count: number, record: AlertRule) => (
+        <Tooltip title={`已连续触发 ${count || 0} 次`}>
+          <Space>
+            <FireOutlined style={{ color: count > 0 ? '#ff4d4f' : '#999' }} />
+            <Text strong={count > 0} style={{ color: count > 0 ? '#ff4d4f' : undefined }}>
+              {count || 0}
+            </Text>
+          </Space>
+        </Tooltip>
+      )
+    },
+    {
+      title: '已升级',
+      dataIndex: 'escalationLevel',
+      key: 'escalationLevel',
+      width: 80,
+      render: (level: number, record: AlertRule) => (
+        <Tooltip title={record.escalationEnabled ? `已升级 ${level || 0} 次` : '未启用升级策略'}>
+          <Space>
+            <RiseOutlined style={{ color: (level || 0) > 0 ? '#fa8c16' : '#999' }} />
+            <Text strong={(level || 0) > 0} style={{ color: (level || 0) > 0 ? '#fa8c16' : undefined }}>
+              {level || 0}
+            </Text>
+          </Space>
+        </Tooltip>
       )
     },
     {
@@ -711,6 +774,72 @@ const AlertRuleManagement: React.FC = () => {
             <Col span={24}>
               <Divider orientation="left">
                 <Space>
+                  <ArrowUpOutlined />
+                  告警升级策略
+                </Space>
+              </Divider>
+
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.Item
+                    name="escalationEnabled"
+                    label="启用自动升级"
+                    valuePropName="checked"
+                    tooltip="当告警连续触发且无人确认时，自动提升严重等级"
+                  >
+                    <Switch />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
+                  <Form.Item
+                    name="escalationThreshold"
+                    label="连续触发次数阈值"
+                    tooltip="连续触发多少次后自动升级"
+                    rules={[{ required: false }]}
+                  >
+                    <Select>
+                      <Option value={2}>2 次</Option>
+                      <Option value={3}>3 次</Option>
+                      <Option value={5}>5 次</Option>
+                      <Option value={10}>10 次</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+                <Col span={24}>
+                  <Form.Item noStyle shouldUpdate>
+                    {({ getFieldValue }) => {
+                      const escalationEnabled = getFieldValue('escalationEnabled')
+                      if (!escalationEnabled) return null
+                      return (
+                        <Card size="small" title="升级接收人">
+                          <Paragraph type="secondary" style={{ marginBottom: 12 }}>
+                            告警升级时将向以下用户发送站内信通知（可选择不在原订阅列表中的用户）
+                          </Paragraph>
+                          <Select
+                            mode="multiple"
+                            placeholder="请选择升级接收人"
+                            value={escalationRecipients}
+                            onChange={setEscalationRecipients}
+                            style={{ width: '100%' }}
+                            showSearch
+                            optionFilterProp="children"
+                          >
+                            {users.map(user => (
+                              <Option key={user.id} value={user.id}>
+                                {user.username} ({user.email})
+                              </Option>
+                            ))}
+                          </Select>
+                        </Card>
+                      )
+                    }}
+                  </Form.Item>
+                </Col>
+              </Row>
+            </Col>
+            <Col span={24}>
+              <Divider orientation="left">
+                <Space>
                   <SettingOutlined />
                   通知渠道
                 </Space>
@@ -865,6 +994,44 @@ const AlertRuleManagement: React.FC = () => {
                   new Date(selectedRule.lastTriggeredAt).toLocaleString('zh-CN') :
                   '从未触发'}
               </Descriptions.Item>
+              <Descriptions.Item label="连续触发次数">
+                <Tag color={selectedRule.consecutiveTriggerCount ? 'red' : 'default'}>
+                  {selectedRule.consecutiveTriggerCount || 0} 次
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="已升级次数">
+                <Tag color={selectedRule.escalationLevel ? 'orange' : 'default'}>
+                  {selectedRule.escalationLevel || 0} 次
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="当前严重等级">
+                <Tag color={getSeverityColor(selectedRule.currentSeverity || selectedRule.severity)}>
+                  {getSeverityText(selectedRule.currentSeverity || selectedRule.severity)}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="升级策略">
+                {selectedRule.escalationEnabled ? (
+                  <Space>
+                    <Tag color="green">已启用</Tag>
+                    <Text type="secondary">
+                      连续 {selectedRule.escalationThreshold} 次触发后升级
+                    </Text>
+                  </Space>
+                ) : (
+                  <Tag color="default">未启用</Tag>
+                )}
+              </Descriptions.Item>
+              {selectedRule.escalationEnabled && selectedRule.escalationRecipients && (
+                <Descriptions.Item label="升级接收人" span={2}>
+                  <Space wrap>
+                    {selectedRule.escalationRecipients.map(r => (
+                      <Tag key={r.userId} color="blue">
+                        {r.username} ({r.email})
+                      </Tag>
+                    ))}
+                  </Space>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Divider orientation="left">告警事件历史</Divider>

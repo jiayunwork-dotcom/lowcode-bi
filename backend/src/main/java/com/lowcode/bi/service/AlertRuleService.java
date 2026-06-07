@@ -27,4 +27,6 @@ public interface AlertRuleService {
     boolean isSubscribed(UUID ruleId);
     Page<AlertRuleResponse> getSubscribedRules(Pageable pageable);
     List<AlertEventResponse> getRecentEvents(UUID ruleId, int limit);
+    List<AlertEventGroupResponse> getEventGroups(AlertSeverity severity, UUID dataModelId, String sortBy);
+    List<AlertEventTimelineItem> getEventTimeline(UUID ruleId);
 }

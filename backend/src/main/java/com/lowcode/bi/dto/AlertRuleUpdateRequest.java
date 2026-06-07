@@ -19,6 +19,9 @@ public class AlertRuleUpdateRequest {
     private AlertSeverity severity;
     private Boolean isEnabled;
     private List<NotificationChannelConfig> notificationChannels;
+    private Boolean escalationEnabled;
+    private Integer escalationThreshold;
+    private List<String> escalationRecipientUserIds;
 }
 
 @Data

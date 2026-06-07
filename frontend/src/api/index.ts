@@ -28,7 +28,9 @@ import type {
   AlertEventStatus,
   AlertSeverity,
   SystemMessage,
-  SystemMessageType
+  SystemMessageType,
+  AlertEventGroup,
+  AlertEventTimelineItem
 } from '@/types'
 
 export const authApi = {
@@ -403,7 +405,13 @@ export const alertApi = {
   getEventsByRule: (ruleId: string, params?: { page?: number; size?: number }) =>
     http.get<{ content: AlertEvent[]; totalElements: number }>(`/alerts/rules/${ruleId}/events`, params),
 
-  getStatistics: () => http.get<AlertStatistics>('/alerts/statistics')
+  getStatistics: () => http.get<AlertStatistics>('/alerts/statistics'),
+
+  getEventGroups: (params?: { severity?: AlertSeverity; dataModelId?: string; sortBy?: string }) =>
+    http.get<AlertEventGroup[]>('/alerts/events/groups', params),
+
+  getEventTimeline: (ruleId: string) =>
+    http.get<AlertEventTimelineItem[]>(`/alerts/rules/${ruleId}/timeline`)
 }
 
 export const messageApi = {

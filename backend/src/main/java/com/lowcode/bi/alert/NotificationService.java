@@ -393,6 +393,67 @@ public class NotificationService {
         return user;
     }
 
+    @Transactional
+    public void sendEscalationInAppNotification(User user, AlertRule rule, AlertEvent event,
+                                                AlertSeverity fromSeverity, AlertSeverity toSeverity,
+                                                boolean isMaxLevel) {
+        SystemMessage message = new SystemMessage();
+        message.setTenant(rule.getTenant());
+        message.setUser(user);
+        message.setMessageType(SystemMessageType.ALERT);
+        message.setTitle(buildEscalationTitle(rule, fromSeverity, toSeverity, isMaxLevel));
+        message.setContent(buildEscalationContent(rule, event, fromSeverity, toSeverity, isMaxLevel));
+        message.setRelatedType("ALERT_EVENT");
+        message.setRelatedId(event.getId());
+        message.setIsRead(false);
+
+        systemMessageRepository.save(message);
+        log.info("Sent escalation in-app notification to user {} for rule {}", user.getId(), rule.getId());
+    }
+
+    private String buildEscalationTitle(AlertRule rule, AlertSeverity fromSeverity,
+                                        AlertSeverity toSeverity, boolean isMaxLevel) {
+        if (isMaxLevel) {
+            return String.format("🔴 告警升级提醒: %s - 持续触发中", rule.getName());
+        }
+        return String.format("⬆️ 告警升级: %s - %s → %s", rule.getName(), fromSeverity, toSeverity);
+    }
+
+    private String buildEscalationContent(AlertRule rule, AlertEvent event,
+                                          AlertSeverity fromSeverity, AlertSeverity toSeverity,
+                                          boolean isMaxLevel) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【告警升级通知】\n\n");
+        sb.append("告警规则: ").append(rule.getName()).append("\n");
+        sb.append("度量指标: ").append(rule.getMeasureName()).append("\n");
+
+        if (isMaxLevel) {
+            sb.append("当前等级: 严重 (已达最高级)\n");
+            sb.append("⚠️ 警告: 该告警已达到最高严重等级，但仍持续触发且未被确认，请及时处理！\n");
+        } else {
+            sb.append("等级变更: ").append(getSeverityText(fromSeverity))
+              .append(" → ").append(getSeverityText(toSeverity)).append("\n");
+            sb.append("升级次数: ").append(rule.getEscalationLevel()).append("\n");
+        }
+
+        sb.append("\n连续触发次数已达到阈值 (").append(rule.getEscalationThreshold()).append("次)\n");
+        sb.append("当前触发值: ").append(event.getTriggerValue()).append("\n");
+        sb.append("阈值: ").append(event.getThreshold()).append("\n");
+        sb.append("触发时间: ").append(event.getTriggeredAt()
+            .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n");
+        sb.append("\n请尽快确认并处理此告警！");
+
+        return sb.toString();
+    }
+
+    private String getSeverityText(AlertSeverity severity) {
+        return switch (severity) {
+            case INFO -> "信息";
+            case WARNING -> "警告";
+            case CRITICAL -> "严重";
+        };
+    }
+
     public static class WebhookPayload {
         private String ruleName;
         private String triggerValue;

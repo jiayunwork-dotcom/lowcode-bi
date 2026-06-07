@@ -512,6 +512,49 @@ export interface AlertRule {
   notificationChannels?: NotificationChannel[]
   eventCount?: number
   subscriberCount?: number
+  escalationEnabled?: boolean
+  escalationThreshold?: number
+  consecutiveTriggerCount?: number
+  escalationLevel?: number
+  currentSeverity?: AlertSeverity
+  escalationRecipients?: EscalationRecipient[]
+}
+
+export interface EscalationRecipient {
+  userId: string
+  username: string
+  email: string
+}
+
+export interface SeverityDistribution {
+  infoCount: number
+  warningCount: number
+  criticalCount: number
+  infoPercent: number
+  warningPercent: number
+  criticalPercent: number
+}
+
+export interface AlertEventTimelineItem {
+  eventId: string
+  triggeredAt: string
+  resolvedAt?: string
+  severity: AlertSeverity
+  isRecovered: boolean
+  triggerValue: string
+}
+
+export interface AlertEventGroup {
+  ruleId: string
+  ruleName: string
+  dataModelName: string
+  dataModelId: string
+  activeEventCount: number
+  totalEventCount: number
+  lastTriggeredAt?: string
+  averageRecoveryMinutes?: number
+  severityDistribution: SeverityDistribution
+  timeline?: AlertEventTimelineItem[]
 }
 
 export interface NotificationChannel {

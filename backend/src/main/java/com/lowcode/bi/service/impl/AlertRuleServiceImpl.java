@@ -6,6 +6,9 @@ import com.lowcode.bi.common.enums.*;
 import com.lowcode.bi.common.exception.BusinessException;
 import com.lowcode.bi.dto.*;
 import com.lowcode.bi.entity.*;
+import com.lowcode.bi.dto.AlertEventGroupResponse;
+import com.lowcode.bi.dto.AlertEventTimelineItem;
+import com.lowcode.bi.dto.EscalationRecipientResponse;
 import com.lowcode.bi.repository.*;
 import com.lowcode.bi.security.TenantContext;
 import com.lowcode.bi.service.AlertRuleService;
@@ -34,6 +37,7 @@ public class AlertRuleServiceImpl implements AlertRuleService {
     private final AlertEventRepository alertEventRepository;
     private final AlertSubscriptionRepository subscriptionRepository;
     private final AlertNotificationChannelRepository channelRepository;
+    private final AlertEscalationRecipientRepository escalationRecipientRepository;
     private final DataModelRepository dataModelRepository;
     private final MeasureRepository measureRepository;
     private final UserRepository userRepository;
@@ -74,15 +78,31 @@ public class AlertRuleServiceImpl implements AlertRuleService {
             request.getSilencePeriod() : 300);
         rule.setSeverity(request.getSeverity() != null ?
             request.getSeverity() : AlertSeverity.WARNING);
+        rule.setCurrentSeverity(request.getSeverity() != null ?
+            request.getSeverity() : AlertSeverity.WARNING);
         rule.setIsEnabled(true);
         rule.setStatus(AlertRuleStatus.ACTIVE);
         rule.setCreatedBy(user);
+
+        rule.setEscalationEnabled(request.getEscalationEnabled() != null ?
+            request.getEscalationEnabled() : false);
+        rule.setEscalationThreshold(request.getEscalationThreshold() != null ?
+            request.getEscalationThreshold() : 3);
+        rule.setConsecutiveTriggerCount(0);
+        rule.setEscalationLevel(0);
 
         rule = alertRuleRepository.save(rule);
 
         if (request.getNotificationChannels() != null) {
             for (var channelConfig : request.getNotificationChannels()) {
                 createNotificationChannel(rule, channelConfig);
+            }
+        }
+
+        if (Boolean.TRUE.equals(request.getEscalationEnabled()) &&
+            request.getEscalationRecipientUserIds() != null) {
+            for (String userId : request.getEscalationRecipientUserIds()) {
+                createEscalationRecipient(rule, userId);
             }
         }
 
@@ -105,7 +125,12 @@ public class AlertRuleServiceImpl implements AlertRuleService {
         if (request.getThreshold() != null) rule.setThreshold(request.getThreshold());
         if (request.getCheckInterval() != null) rule.setCheckInterval(request.getCheckInterval());
         if (request.getSilencePeriod() != null) rule.setSilencePeriod(request.getSilencePeriod());
-        if (request.getSeverity() != null) rule.setSeverity(request.getSeverity());
+        if (request.getSeverity() != null) {
+            rule.setSeverity(request.getSeverity());
+            if (rule.getCurrentSeverity() == null || rule.getEscalationLevel() == 0) {
+                rule.setCurrentSeverity(request.getSeverity());
+            }
+        }
         if (request.getIsEnabled() != null) {
             rule.setIsEnabled(request.getIsEnabled());
             if (!request.getIsEnabled()) {
@@ -115,8 +140,19 @@ public class AlertRuleServiceImpl implements AlertRuleService {
             }
         }
 
+        if (request.getEscalationEnabled() != null) {
+            rule.setEscalationEnabled(request.getEscalationEnabled());
+        }
+        if (request.getEscalationThreshold() != null) {
+            rule.setEscalationThreshold(request.getEscalationThreshold());
+        }
+
         if (request.getNotificationChannels() != null) {
             updateNotificationChannels(rule, request.getNotificationChannels());
+        }
+
+        if (request.getEscalationRecipientUserIds() != null) {
+            updateEscalationRecipients(rule, request.getEscalationRecipientUserIds());
         }
 
         rule = alertRuleRepository.save(rule);
@@ -251,6 +287,12 @@ public class AlertRuleServiceImpl implements AlertRuleService {
         event.setEventStatus(AlertEventStatus.ACKNOWLEDGED);
         event.setAcknowledgedAt(LocalDateTime.now());
         event.setAcknowledgedBy(user);
+
+        AlertRule rule = event.getAlertRule();
+        if (rule != null) {
+            rule.setConsecutiveTriggerCount(0);
+            alertRuleRepository.save(rule);
+        }
 
         event = alertEventRepository.save(event);
         return toEventResponse(event);
@@ -437,6 +479,28 @@ public class AlertRuleServiceImpl implements AlertRuleService {
             .collect(Collectors.toList());
         response.setNotificationChannels(channels);
 
+        response.setEscalationEnabled(rule.getEscalationEnabled());
+        response.setEscalationThreshold(rule.getEscalationThreshold());
+        response.setConsecutiveTriggerCount(rule.getConsecutiveTriggerCount());
+        response.setEscalationLevel(rule.getEscalationLevel());
+        response.setCurrentSeverity(rule.getCurrentSeverity() != null ?
+            rule.getCurrentSeverity() : rule.getSeverity());
+
+        List<EscalationRecipientResponse> recipients = escalationRecipientRepository
+            .findByAlertRuleId(rule.getId())
+            .stream()
+            .map(this::toEscalationRecipientResponse)
+            .collect(Collectors.toList());
+        response.setEscalationRecipients(recipients);
+
+        return response;
+    }
+
+    private EscalationRecipientResponse toEscalationRecipientResponse(AlertEscalationRecipient recipient) {
+        EscalationRecipientResponse response = new EscalationRecipientResponse();
+        response.setUserId(recipient.getUser().getId());
+        response.setUsername(recipient.getUser().getUsername());
+        response.setEmail(recipient.getUser().getEmail());
         return response;
     }
 
@@ -478,5 +542,154 @@ public class AlertRuleServiceImpl implements AlertRuleService {
         response.setRecoveryValue(event.getRecoveryValue());
 
         return response;
+    }
+
+    private void createEscalationRecipient(AlertRule rule, String userIdStr) {
+        UUID userId = UUID.fromString(userIdStr);
+        User user = userRepository.findByIdAndTenantId(userId, rule.getTenant().getId())
+            .orElseThrow(() -> new BusinessException("升级接收人用户不存在: " + userIdStr));
+
+        AlertEscalationRecipient recipient = new AlertEscalationRecipient();
+        recipient.setTenant(rule.getTenant());
+        recipient.setAlertRule(rule);
+        recipient.setUser(user);
+        escalationRecipientRepository.save(recipient);
+    }
+
+    private void updateEscalationRecipients(AlertRule rule, List<String> userIds) {
+        escalationRecipientRepository.deleteByAlertRuleId(rule.getId());
+        for (String userId : userIds) {
+            createEscalationRecipient(rule, userId);
+        }
+    }
+
+    @Override
+    public List<AlertEventGroupResponse> getEventGroups(AlertSeverity severity, UUID dataModelId, String sortBy) {
+        UUID tenantId = TenantContext.getTenantId();
+        List<AlertRule> rules = alertRuleRepository.findByTenantId(tenantId);
+
+        if (dataModelId != null) {
+            rules = rules.stream()
+                .filter(r -> r.getDataModel().getId().equals(dataModelId))
+                .collect(Collectors.toList());
+        }
+
+        List<AlertEventGroupResponse> groups = rules.stream()
+            .map(rule -> buildEventGroup(rule, severity))
+            .filter(Objects::nonNull)
+            .collect(Collectors.toList());
+
+        if ("activeCount".equals(sortBy)) {
+            groups.sort((g1, g2) -> Long.compare(g2.getActiveEventCount(), g1.getActiveEventCount()));
+        } else {
+            groups.sort((g1, g2) -> {
+                LocalDateTime t1 = g1.getLastTriggeredAt();
+                LocalDateTime t2 = g2.getLastTriggeredAt();
+                if (t1 == null && t2 == null) return 0;
+                if (t1 == null) return 1;
+                if (t2 == null) return -1;
+                return t2.compareTo(t1);
+            });
+        }
+
+        return groups;
+    }
+
+    private AlertEventGroupResponse buildEventGroup(AlertRule rule, AlertSeverity severityFilter) {
+        List<AlertEvent> events = alertEventRepository.findByAlertRuleIdAndTenantId(
+            rule.getId(), rule.getTenant().getId(), PageRequest.of(0, 1000));
+
+        if (events.isEmpty()) {
+            return null;
+        }
+
+        if (severityFilter != null) {
+            boolean hasMatchingSeverity = events.stream()
+                .anyMatch(e -> e.getSeverity() == severityFilter);
+            if (!hasMatchingSeverity) {
+                return null;
+            }
+        }
+
+        AlertEventGroupResponse group = new AlertEventGroupResponse();
+        group.setRuleId(rule.getId());
+        group.setRuleName(rule.getName());
+        group.setDataModelId(rule.getDataModel().getId());
+        group.setDataModelName(rule.getDataModel().getName());
+
+        long activeCount = events.stream()
+            .filter(e -> e.getEventStatus() == AlertEventStatus.FIRING && !e.getIsRecovered())
+            .count();
+        group.setActiveEventCount(activeCount);
+        group.setTotalEventCount((long) events.size());
+
+        Optional<LocalDateTime> lastTriggered = events.stream()
+            .map(AlertEvent::getTriggeredAt)
+            .max(LocalDateTime::compareTo);
+        group.setLastTriggeredAt(lastTriggered.orElse(null));
+
+        Double avgRecovery = calculateAverageRecovery(events);
+        group.setAverageRecoveryMinutes(avgRecovery);
+
+        SeverityDistribution distribution = calculateSeverityDistribution(events);
+        group.setSeverityDistribution(distribution);
+
+        return group;
+    }
+
+    private Double calculateAverageRecovery(List<AlertEvent> events) {
+        List<AlertEvent> recovered = events.stream()
+            .filter(e -> e.getIsRecovered() && e.getResolvedAt() != null)
+            .collect(Collectors.toList());
+
+        if (recovered.isEmpty()) {
+            return null;
+        }
+
+        double totalMinutes = recovered.stream()
+            .mapToDouble(e -> java.time.Duration.between(e.getTriggeredAt(), e.getResolvedAt()).toMinutes())
+            .average()
+            .orElse(0);
+
+        return Math.round(totalMinutes * 10.0) / 10.0;
+    }
+
+    private SeverityDistribution calculateSeverityDistribution(List<AlertEvent> events) {
+        long total = events.size();
+        long infoCount = events.stream().filter(e -> e.getSeverity() == AlertSeverity.INFO).count();
+        long warningCount = events.stream().filter(e -> e.getSeverity() == AlertSeverity.WARNING).count();
+        long criticalCount = events.stream().filter(e -> e.getSeverity() == AlertSeverity.CRITICAL).count();
+
+        SeverityDistribution dist = new SeverityDistribution();
+        dist.setInfoCount(infoCount);
+        dist.setWarningCount(warningCount);
+        dist.setCriticalCount(criticalCount);
+        dist.setInfoPercent(total > 0 ? Math.round(infoCount * 1000.0 / total) / 10.0 : 0);
+        dist.setWarningPercent(total > 0 ? Math.round(warningCount * 1000.0 / total) / 10.0 : 0);
+        dist.setCriticalPercent(total > 0 ? Math.round(criticalCount * 1000.0 / total) / 10.0 : 0);
+
+        return dist;
+    }
+
+    @Override
+    public List<AlertEventTimelineItem> getEventTimeline(UUID ruleId) {
+        UUID tenantId = TenantContext.getTenantId();
+        List<AlertEvent> events = alertEventRepository.findByAlertRuleIdAndTenantId(
+            ruleId, tenantId, PageRequest.of(0, 100, Sort.by(Sort.Direction.DESC, "triggeredAt")));
+
+        return events.stream()
+            .map(this::toTimelineItem)
+            .collect(Collectors.toList());
+    }
+
+    private AlertEventTimelineItem toTimelineItem(AlertEvent event) {
+        AlertEventTimelineItem item = new AlertEventTimelineItem();
+        item.setEventId(event.getId());
+        item.setTriggeredAt(event.getTriggeredAt());
+        item.setResolvedAt(event.getResolvedAt());
+        item.setSeverity(event.getSeverity());
+        item.setRecovered(event.getIsRecovered());
+        item.setTriggerValue(event.getTriggerValue() != null ? event.getTriggerValue().toString() : "");
+        return item;
     }
 }

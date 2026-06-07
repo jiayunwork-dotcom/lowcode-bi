@@ -32,6 +32,19 @@ public class AlertRuleResponse {
     private List<NotificationChannelResponse> notificationChannels;
     private Long eventCount;
     private Long subscriberCount;
+    private Boolean escalationEnabled;
+    private Integer escalationThreshold;
+    private Integer consecutiveTriggerCount;
+    private Integer escalationLevel;
+    private AlertSeverity currentSeverity;
+    private List<EscalationRecipientResponse> escalationRecipients;
+}
+
+@Data
+public class EscalationRecipientResponse {
+    private UUID userId;
+    private String username;
+    private String email;
 }
 
 @Data

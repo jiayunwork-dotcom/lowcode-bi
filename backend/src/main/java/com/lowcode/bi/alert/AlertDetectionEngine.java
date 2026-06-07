@@ -6,6 +6,7 @@ import com.lowcode.bi.common.exception.BusinessException;
 import com.lowcode.bi.entity.*;
 import com.lowcode.bi.query.SqlQueryEngine;
 import com.lowcode.bi.repository.*;
+import com.lowcode.bi.entity.AlertEscalationRecipient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,6 +31,7 @@ public class AlertDetectionEngine {
     private final AlertNotificationRepository alertNotificationRepository;
     private final AlertNotificationChannelRepository channelRepository;
     private final AlertSubscriptionRepository subscriptionRepository;
+    private final AlertEscalationRecipientRepository escalationRecipientRepository;
     private final SqlQueryEngine sqlQueryEngine;
     private final NotificationService notificationService;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -290,6 +292,8 @@ public class AlertDetectionEngine {
             return;
         }
 
+        AlertSeverity eventSeverity = rule.getCurrentSeverity() != null ? rule.getCurrentSeverity() : rule.getSeverity();
+
         AlertEvent event = new AlertEvent();
         event.setTenant(rule.getTenant());
         event.setAlertRule(rule);
@@ -297,7 +301,7 @@ public class AlertDetectionEngine {
         event.setThreshold(rule.getThreshold());
         event.setPreviousValue(previousValue);
         event.setChangePercent(changePercent);
-        event.setSeverity(rule.getSeverity());
+        event.setSeverity(eventSeverity);
         event.setEventStatus(AlertEventStatus.FIRING);
         event.setTriggeredAt(LocalDateTime.now());
         event.setIsRecovered(false);
@@ -306,6 +310,88 @@ public class AlertDetectionEngine {
         log.info("Created alert event {} for rule {}", event.getId(), rule.getId());
 
         createNotifications(event, rule);
+
+        handleEscalation(rule, event);
+    }
+
+    private void handleEscalation(AlertRule rule, AlertEvent event) {
+        if (!Boolean.TRUE.equals(rule.getEscalationEnabled())) {
+            return;
+        }
+
+        boolean hasUnacknowledgedEvents = alertEventRepository.findByAlertRuleIdAndIsRecoveredFalse(rule.getId())
+            .stream()
+            .anyMatch(e -> e.getAcknowledgedAt() == null);
+
+        if (!hasUnacknowledgedEvents) {
+            rule.setConsecutiveTriggerCount(1);
+            alertRuleRepository.save(rule);
+            return;
+        }
+
+        int newCount = rule.getConsecutiveTriggerCount() + 1;
+        rule.setConsecutiveTriggerCount(newCount);
+
+        int threshold = rule.getEscalationThreshold() != null ? rule.getEscalationThreshold() : 3;
+
+        if (newCount >= threshold) {
+            performEscalation(rule, event);
+            rule.setConsecutiveTriggerCount(0);
+        }
+
+        alertRuleRepository.save(rule);
+    }
+
+    private void performEscalation(AlertRule rule, AlertEvent event) {
+        AlertSeverity currentSeverity = rule.getCurrentSeverity() != null ? rule.getCurrentSeverity() : rule.getSeverity();
+        AlertSeverity nextSeverity = getNextSeverity(currentSeverity);
+
+        boolean isMaxLevel = currentSeverity == AlertSeverity.CRITICAL;
+
+        if (!isMaxLevel) {
+            rule.setCurrentSeverity(nextSeverity);
+            rule.setEscalationLevel(rule.getEscalationLevel() + 1);
+            log.info("Escalated rule {} severity from {} to {}", rule.getId(), currentSeverity, nextSeverity);
+        }
+
+        sendEscalationNotifications(rule, event, currentSeverity, nextSeverity, isMaxLevel);
+    }
+
+    private AlertSeverity getNextSeverity(AlertSeverity current) {
+        return switch (current) {
+            case INFO -> AlertSeverity.WARNING;
+            case WARNING -> AlertSeverity.CRITICAL;
+            case CRITICAL -> AlertSeverity.CRITICAL;
+        };
+    }
+
+    private void sendEscalationNotifications(AlertRule rule, AlertEvent event, 
+                                             AlertSeverity fromSeverity, AlertSeverity toSeverity,
+                                             boolean isMaxLevel) {
+        List<AlertEscalationRecipient> recipients = escalationRecipientRepository.findByAlertRuleId(rule.getId());
+
+        if (recipients.isEmpty()) {
+            log.warn("No escalation recipients configured for rule {}", rule.getId());
+            return;
+        }
+
+        for (AlertEscalationRecipient recipient : recipients) {
+            try {
+                notificationService.sendEscalationInAppNotification(
+                    recipient.getUser(),
+                    rule,
+                    event,
+                    fromSeverity,
+                    toSeverity,
+                    isMaxLevel
+                );
+            } catch (Exception e) {
+                log.error("Failed to send escalation notification to user {} for rule {}: {}",
+                    recipient.getUser().getId(), rule.getId(), e.getMessage(), e);
+            }
+        }
+
+        log.info("Sent escalation notifications to {} recipients for rule {}", recipients.size(), rule.getId());
     }
 
     private void createNotifications(AlertEvent event, AlertRule rule) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Row,
   Col,
@@ -15,7 +15,11 @@ import {
   Modal,
   message,
   Tooltip,
-  Alert
+  Alert,
+  Tabs,
+  Radio,
+  Timeline,
+  Badge
 } from 'antd'
 import {
   WarningOutlined,
@@ -25,14 +29,26 @@ import {
   ExclamationCircleFilled,
   BellOutlined,
   FireOutlined,
-  RiseOutlined
+  RiseOutlined,
+  AppstoreOutlined,
+  UnorderedListOutlined,
+  ArrowDownOutlined
 } from '@ant-design/icons'
-import { alertApi } from '@/api'
-import type { AlertEvent, AlertStatistics, AlertSeverity, AlertEventStatus } from '@/types'
+import { alertApi, dataModelApi } from '@/api'
+import type {
+  AlertEvent,
+  AlertStatistics,
+  AlertSeverity,
+  AlertEventStatus,
+  AlertEventGroup,
+  AlertEventTimelineItem,
+  DataModel
+} from '@/types'
 import * as echarts from 'echarts'
 
 const { Title, Text, Paragraph } = Typography
 const { Option } = Select
+const { TabPane } = Tabs
 
 const AlertCenter: React.FC = () => {
   const [statistics, setStatistics] = useState<AlertStatistics | null>(null)
@@ -48,6 +64,18 @@ const AlertCenter: React.FC = () => {
   const [trendChartRef, setTrendChartRef] = useState<HTMLDivElement | null>(null)
   const [chartInstance, setChartInstance] = useState<echarts.ECharts | null>(null)
   const [createModalVisible, setCreateModalVisible] = useState(false)
+
+  const [activeView, setActiveView] = useState<'list' | 'group'>('list')
+  const [eventGroups, setEventGroups] = useState<AlertEventGroup[]>([])
+  const [groupsLoading, setGroupsLoading] = useState(false)
+  const [groupSeverityFilter, setGroupSeverityFilter] = useState<AlertSeverity | undefined>()
+  const [groupDataModelFilter, setGroupDataModelFilter] = useState<string | undefined>()
+  const [sortBy, setSortBy] = useState<'activeCount' | 'lastTriggered'>('activeCount')
+  const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
+  const [dataModels, setDataModels] = useState<DataModel[]>([])
+  const [groupTimeline, setGroupTimeline] = useState<Record<string, AlertEventTimelineItem[]>>({})
+  const pieChartRefs = useRef<Record<string, HTMLDivElement | null>>({})
+  const pieChartInstances = useRef<Record<string, echarts.ECharts | null>>({})
 
   const loadStatistics = useCallback(async () => {
     try {
@@ -86,10 +114,54 @@ const AlertCenter: React.FC = () => {
     }
   }, [statusFilter, severityFilter, page, events.length])
 
+  const loadEventGroups = useCallback(async () => {
+    setGroupsLoading(true)
+    try {
+      const data = await alertApi.getEventGroups({
+        severity: groupSeverityFilter,
+        dataModelId: groupDataModelFilter,
+        sortBy
+      })
+      setEventGroups(data || [])
+    } catch (error) {
+      console.error('Failed to load event groups:', error)
+      message.error('加载分组数据失败')
+    } finally {
+      setGroupsLoading(false)
+    }
+  }, [groupSeverityFilter, groupDataModelFilter, sortBy])
+
+  const loadDataModels = useCallback(async () => {
+    try {
+      const data = await dataModelApi.getList()
+      setDataModels(data || [])
+    } catch (error) {
+      console.error('Failed to load data models:', error)
+    }
+  }, [])
+
+  const loadTimeline = useCallback(async (ruleId: string) => {
+    if (groupTimeline[ruleId]) return
+    try {
+      const data = await alertApi.getEventTimeline(ruleId)
+      setGroupTimeline(prev => ({ ...prev, [ruleId]: data || [] }))
+    } catch (error) {
+      console.error('Failed to load timeline:', error)
+    }
+  }, [groupTimeline])
+
   useEffect(() => {
     loadStatistics()
-    loadEvents(true)
-  }, [statusFilter, severityFilter])
+    loadDataModels()
+  }, [loadStatistics, loadDataModels])
+
+  useEffect(() => {
+    if (activeView === 'list') {
+      loadEvents(true)
+    } else {
+      loadEventGroups()
+    }
+  }, [activeView, statusFilter, severityFilter, groupSeverityFilter, groupDataModelFilter, sortBy])
 
   useEffect(() => {
     if (trendChartRef && eventDetail?.trendData) {
@@ -177,6 +249,61 @@ const AlertCenter: React.FC = () => {
     }
   }, [trendChartRef, eventDetail, chartInstance])
 
+  useEffect(() => {
+    eventGroups.forEach(group => {
+      const chartRef = pieChartRefs.current[group.ruleId]
+      if (chartRef && group.severityDistribution) {
+        if (!pieChartInstances.current[group.ruleId]) {
+          pieChartInstances.current[group.ruleId] = echarts.init(chartRef)
+        }
+        const chart = pieChartInstances.current[group.ruleId]!
+        const dist = group.severityDistribution
+        const option: echarts.EChartsOption = {
+          tooltip: {
+            trigger: 'item',
+            formatter: '{b}: {c} ({d}%)'
+          },
+          series: [
+            {
+              type: 'pie',
+              radius: ['40%', '70%'],
+              avoidLabelOverlap: false,
+              itemStyle: {
+                borderRadius: 6,
+                borderColor: '#fff',
+                borderWidth: 2
+              },
+              label: {
+                show: false
+              },
+              emphasis: {
+                label: {
+                  show: true,
+                  fontSize: 12,
+                  fontWeight: 'bold'
+                }
+              },
+              data: [
+                { value: dist.infoCount, name: '信息', itemStyle: { color: '#1890ff' } },
+                { value: dist.warningCount, name: '警告', itemStyle: { color: '#faad14' } },
+                { value: dist.criticalCount, name: '严重', itemStyle: { color: '#ff4d4f' } }
+              ].filter(d => d.value > 0)
+            }
+          ]
+        }
+        chart.setOption(option)
+      }
+    })
+
+    const handleResize = () => {
+      Object.values(pieChartInstances.current).forEach(chart => chart?.resize())
+    }
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [eventGroups])
+
   const handleEventClick = async (event: AlertEvent) => {
     setSelectedEvent(event)
     try {
@@ -185,6 +312,15 @@ const AlertCenter: React.FC = () => {
     } catch (error) {
       console.error('Failed to load event detail:', error)
       message.error('加载事件详情失败')
+    }
+  }
+
+  const handleGroupClick = async (group: AlertEventGroup) => {
+    if (expandedGroupId === group.ruleId) {
+      setExpandedGroupId(null)
+    } else {
+      setExpandedGroupId(group.ruleId)
+      loadTimeline(group.ruleId)
     }
   }
 
@@ -266,6 +402,60 @@ const AlertCenter: React.FC = () => {
     return `${ops[operator] || operator} ${threshold}`
   }
 
+  const renderSeverityLegend = (group: AlertEventGroup) => {
+    const dist = group.severityDistribution
+    return (
+      <Space size="small" style={{ marginTop: 8 }}>
+        <Tag color="blue">信息 {dist.infoCount}</Tag>
+        <Tag color="orange">警告 {dist.warningCount}</Tag>
+        <Tag color="red">严重 {dist.criticalCount}</Tag>
+      </Space>
+    )
+  }
+
+  const renderTimeline = (groupId: string) => {
+    const timeline = groupTimeline[groupId] || []
+    if (timeline.length === 0) {
+      return <Empty description="加载中..." image={Empty.PRESENTED_IMAGE_SIMPLE} style={{ padding: '20px 0' }} />
+    }
+
+    return (
+      <Timeline
+        style={{ marginTop: 16, paddingLeft: 8 }}
+        items={timeline.map(item => ({
+          color: !item.isRecovered ? 'red' : 'green',
+          dot: !item.isRecovered ? <FireOutlined style={{ fontSize: 16 }} /> : <CheckCircleOutlined />,
+          children: (
+            <Card size="small" style={{ marginBottom: 8, border: !item.isRecovered ? '1px solid #ffccc7' : undefined }}>
+              <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                <Space>
+                  <Tag color={getSeverityColor(item.severity)}>{item.severity}</Tag>
+                  {!item.isRecovered && (
+                    <Badge status="processing" text="未恢复" color="red" />
+                  )}
+                  {item.isRecovered && (
+                    <Badge status="success" text="已恢复" />
+                  )}
+                </Space>
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  <Text strong>触发时间:</Text> {formatTime(item.triggeredAt)}
+                </div>
+                {item.resolvedAt && (
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    <Text strong>恢复时间:</Text> {formatTime(item.resolvedAt)}
+                  </div>
+                )}
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  <Text strong>触发值:</Text> {item.triggerValue}
+                </div>
+              </Space>
+            </Card>
+          )
+        }))}
+      />
+    )
+  }
+
   return (
     <div style={{ padding: 0 }}>
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -327,201 +517,389 @@ const AlertCenter: React.FC = () => {
         </Col>
       </Row>
 
-      <Row gutter={[16, 16]}>
-        <Col xs={24} lg={10}>
+      <Tabs activeKey={activeView} onChange={key => setActiveView(key as 'list' | 'group')}>
+        <TabPane
+          tab={
+            <Space>
+              <UnorderedListOutlined />
+              事件列表
+            </Space>
+          }
+          key="list"
+        >
+          <Row gutter={[16, 16]}>
+            <Col xs={24} lg={10}>
+              <Card
+                title="告警事件"
+                extra={
+                  <Space>
+                    <Select
+                      placeholder="状态筛选"
+                      style={{ width: 120 }}
+                      allowClear
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                    >
+                      <Option value="FIRING">告警中</Option>
+                      <Option value="RESOLVED">已恢复</Option>
+                      <Option value="ACKNOWLEDGED">已确认</Option>
+                    </Select>
+                    <Select
+                      placeholder="等级筛选"
+                      style={{ width: 120 }}
+                      allowClear
+                      value={severityFilter}
+                      onChange={setSeverityFilter}
+                    >
+                      <Option value="INFO">信息</Option>
+                      <Option value="WARNING">警告</Option>
+                      <Option value="CRITICAL">严重</Option>
+                    </Select>
+                  </Space>
+                }
+                style={{ height: 'calc(100vh - 300px)', overflow: 'auto' }}
+                bodyStyle={{ padding: 0 }}
+              >
+                {events.length === 0 ? (
+                  <Empty description="暂无告警事件" style={{ padding: '60px 0' }} />
+                ) : (
+                  <List
+                    itemLayout="vertical"
+                    dataSource={events}
+                    loading={loading}
+                    renderItem={event => (
+                      <List.Item
+                        key={event.id}
+                        onClick={() => handleEventClick(event)}
+                        style={{
+                          padding: '16px',
+                          cursor: 'pointer',
+                          background: selectedEvent?.id === event.id ? '#e6f7ff' : 'transparent',
+                          borderBottom: '1px solid #f0f0f0',
+                          transition: 'all 0.3s'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (selectedEvent?.id !== event.id) {
+                            e.currentTarget.style.background = '#fafafa'
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (selectedEvent?.id !== event.id) {
+                            e.currentTarget.style.background = 'transparent'
+                          }
+                        }}
+                      >
+                        <List.Item.Meta
+                          avatar={getSeverityIcon(event.severity)}
+                          title={
+                            <Space wrap>
+                              <Text strong>{event.alertRuleName}</Text>
+                              <Tag color={getSeverityColor(event.severity)}>{event.severity}</Tag>
+                              <Tag color={getStatusColor(event.eventStatus)}>
+                                {getStatusText(event.eventStatus)}
+                              </Tag>
+                            </Space>
+                          }
+                          description={
+                            <div>
+                              <Paragraph ellipsis={{ rows: 1 }} style={{ marginBottom: 8 }}>
+                                度量: {event.measureName} · 当前值: <Text strong>{event.triggerValue}</Text> · 阈值: {event.threshold}
+                              </Paragraph>
+                              <Text type="secondary" style={{ fontSize: 12 }}>
+                                触发时间: {formatTime(event.triggeredAt)}
+                              </Text>
+                            </div>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                    loadMore={
+                      hasMore && !loading ? (
+                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                          <Button onClick={() => loadEvents(false)}>加载更多</Button>
+                        </div>
+                      ) : null
+                    }
+                  />
+                )}
+              </Card>
+            </Col>
+
+            <Col xs={24} lg={14}>
+              <Card
+                title="事件详情"
+                extra={
+                  selectedEvent && selectedEvent.eventStatus === 'FIRING' ? (
+                    <Button type="primary" onClick={handleAcknowledge}>
+                      确认告警
+                    </Button>
+                  ) : null
+                }
+                style={{ height: 'calc(100vh - 300px)', overflow: 'auto' }}
+              >
+                {eventDetail ? (
+                  <div>
+                    <Descriptions column={2} bordered size="small" style={{ marginBottom: 16 }}>
+                      <Descriptions.Item label="告警规则">
+                        {eventDetail.alertRuleName}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="度量指标">
+                        {eventDetail.measureName}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="严重等级">
+                        <Tag color={getSeverityColor(eventDetail.severity)}>
+                          {eventDetail.severity === 'INFO' ? '信息' :
+                           eventDetail.severity === 'WARNING' ? '警告' : '严重'}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="状态">
+                        <Tag color={getStatusColor(eventDetail.eventStatus)}>
+                          {getStatusText(eventDetail.eventStatus)}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="触发值">
+                        <Text strong type="danger">{eventDetail.triggerValue}</Text>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="阈值">
+                        {eventDetail.threshold}
+                      </Descriptions.Item>
+                      {eventDetail.changePercent != null && (
+                        <>
+                          <Descriptions.Item label="上一周期值">
+                            {eventDetail.previousValue}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="变化率">
+                            <Tag color={eventDetail.changePercent > 0 ? 'red' : 'green'}>
+                              {eventDetail.changePercent > 0 ? '+' : ''}{eventDetail.changePercent.toFixed(2)}%
+                            </Tag>
+                          </Descriptions.Item>
+                        </>
+                      )}
+                      <Descriptions.Item label="触发时间">
+                        {formatTime(eventDetail.triggeredAt)}
+                      </Descriptions.Item>
+                      {eventDetail.resolvedAt && (
+                        <Descriptions.Item label="恢复时间">
+                          {formatTime(eventDetail.resolvedAt)}
+                        </Descriptions.Item>
+                      )}
+                      {eventDetail.acknowledgedAt && (
+                        <>
+                          <Descriptions.Item label="确认时间">
+                            {formatTime(eventDetail.acknowledgedAt)}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="确认人">
+                            {eventDetail.acknowledgedBy}
+                          </Descriptions.Item>
+                        </>
+                      )}
+                    </Descriptions>
+
+                    <Title level={5} style={{ marginTop: 24, marginBottom: 12 }}>
+                      最近24小时趋势
+                    </Title>
+                    <div
+                      ref={setTrendChartRef}
+                      style={{ height: 300, width: '100%' }}
+                    />
+
+                    {eventDetail.isRecovered && eventDetail.recoveryValue != null && (
+                      <Alert
+                        message="告警已恢复"
+                        description={`恢复值: ${eventDetail.recoveryValue}`}
+                        type="success"
+                        showIcon
+                        style={{ marginTop: 16 }}
+                      />
+                    )}
+                  </div>
+                ) : (
+                  <Empty
+                    description="请选择一个告警事件查看详情"
+                    style={{ padding: '60px 0' }}
+                  />
+                )}
+              </Card>
+            </Col>
+          </Row>
+        </TabPane>
+
+        <TabPane
+          tab={
+            <Space>
+              <AppstoreOutlined />
+              按规则分组
+            </Space>
+          }
+          key="group"
+        >
           <Card
-            title="告警事件"
-            extra={
-              <Space>
+            style={{ marginBottom: 16 }}
+            bodyStyle={{ padding: '12px 16px' }}
+          >
+            <Row gutter={16} align="middle">
+              <Col>
+                <Text strong>筛选:</Text>
+              </Col>
+              <Col>
                 <Select
-                  placeholder="状态筛选"
-                  style={{ width: 120 }}
+                  placeholder="严重等级"
+                  style={{ width: 140 }}
                   allowClear
-                  value={statusFilter}
-                  onChange={setStatusFilter}
-                >
-                  <Option value="FIRING">告警中</Option>
-                  <Option value="RESOLVED">已恢复</Option>
-                  <Option value="ACKNOWLEDGED">已确认</Option>
-                </Select>
-                <Select
-                  placeholder="等级筛选"
-                  style={{ width: 120 }}
-                  allowClear
-                  value={severityFilter}
-                  onChange={setSeverityFilter}
+                  value={groupSeverityFilter}
+                  onChange={setGroupSeverityFilter}
                 >
                   <Option value="INFO">信息</Option>
                   <Option value="WARNING">警告</Option>
                   <Option value="CRITICAL">严重</Option>
                 </Select>
-              </Space>
-            }
-            style={{ height: 'calc(100vh - 300px)', overflow: 'auto' }}
-            bodyStyle={{ padding: 0 }}
-          >
-            {events.length === 0 ? (
-              <Empty description="暂无告警事件" style={{ padding: '60px 0' }} />
-            ) : (
-              <List
-                itemLayout="vertical"
-                dataSource={events}
-                loading={loading}
-                renderItem={event => (
-                  <List.Item
-                    key={event.id}
-                    onClick={() => handleEventClick(event)}
+              </Col>
+              <Col>
+                <Select
+                  placeholder="数据模型"
+                  style={{ width: 200 }}
+                  allowClear
+                  showSearch
+                  optionFilterProp="children"
+                  value={groupDataModelFilter}
+                  onChange={setGroupDataModelFilter}
+                >
+                  {dataModels.map(dm => (
+                    <Option key={dm.id} value={dm.id}>
+                      {dm.name}
+                    </Option>
+                  ))}
+                </Select>
+              </Col>
+              <Col flex="auto" style={{ textAlign: 'right' }}>
+                <Space>
+                  <Text type="secondary">排序:</Text>
+                  <Radio.Group value={sortBy} onChange={e => setSortBy(e.target.value)}>
+                    <Radio.Button value="activeCount">
+                      <Space>
+                        <FireOutlined />
+                        活跃事件数
+                        <ArrowDownOutlined />
+                      </Space>
+                    </Radio.Button>
+                    <Radio.Button value="lastTriggered">
+                      <Space>
+                        <ClockCircleOutlined />
+                        最近触发时间
+                        <ArrowDownOutlined />
+                      </Space>
+                    </Radio.Button>
+                  </Radio.Group>
+                </Space>
+              </Col>
+            </Row>
+          </Card>
+
+          {eventGroups.length === 0 ? (
+            <Card>
+              <Empty description="暂无告警分组数据" style={{ padding: '60px 0' }} />
+            </Card>
+          ) : (
+            <Row gutter={[16, 16]}>
+              {eventGroups.map(group => (
+                <Col xs={24} lg={12} xl={8} key={group.ruleId}>
+                  <Card
+                    hoverable
+                    onClick={() => handleGroupClick(group)}
                     style={{
-                      padding: '16px',
                       cursor: 'pointer',
-                      background: selectedEvent?.id === event.id ? '#e6f7ff' : 'transparent',
-                      borderBottom: '1px solid #f0f0f0',
-                      transition: 'all 0.3s'
+                      borderColor: expandedGroupId === group.ruleId ? '#1890ff' : undefined,
+                      boxShadow: expandedGroupId === group.ruleId ? '0 2px 8px rgba(24, 144, 255, 0.2)' : undefined
                     }}
-                    onMouseEnter={(e) => {
-                      if (selectedEvent?.id !== event.id) {
-                        e.currentTarget.style.background = '#fafafa'
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (selectedEvent?.id !== event.id) {
-                        e.currentTarget.style.background = 'transparent'
-                      }
-                    }}
-                  >
-                    <List.Item.Meta
-                      avatar={getSeverityIcon(event.severity)}
-                      title={
-                        <Space wrap>
-                          <Text strong>{event.alertRuleName}</Text>
-                          <Tag color={getSeverityColor(event.severity)}>{event.severity}</Tag>
-                          <Tag color={getStatusColor(event.eventStatus)}>
-                            {getStatusText(event.eventStatus)}
-                          </Tag>
-                        </Space>
-                      }
-                      description={
-                        <div>
-                          <Paragraph ellipsis={{ rows: 1 }} style={{ marginBottom: 8 }}>
-                            度量: {event.measureName} · 当前值: <Text strong>{event.triggerValue}</Text> · 阈值: {event.threshold}
-                          </Paragraph>
-                          <Text type="secondary" style={{ fontSize: 12 }}>
-                            触发时间: {formatTime(event.triggeredAt)}
-                          </Text>
-                        </div>
-                      }
-                    />
-                  </List.Item>
-                )}
-                loadMore={
-                  hasMore && !loading ? (
-                    <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                      <Button onClick={() => loadEvents(false)}>加载更多</Button>
-                    </div>
-                  ) : null
-                }
-              />
-            )}
-          </Card>
-        </Col>
-
-        <Col xs={24} lg={14}>
-          <Card
-            title="事件详情"
-            extra={
-              selectedEvent && selectedEvent.eventStatus === 'FIRING' ? (
-                <Button type="primary" onClick={handleAcknowledge}>
-                  确认告警
-                </Button>
-              ) : null
-            }
-            style={{ height: 'calc(100vh - 300px)', overflow: 'auto' }}
-          >
-            {eventDetail ? (
-              <div>
-                <Descriptions column={2} bordered size="small" style={{ marginBottom: 16 }}>
-                  <Descriptions.Item label="告警规则">
-                    {eventDetail.alertRuleName}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="度量指标">
-                    {eventDetail.measureName}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="严重等级">
-                    <Tag color={getSeverityColor(eventDetail.severity)}>
-                      {eventDetail.severity === 'INFO' ? '信息' :
-                       eventDetail.severity === 'WARNING' ? '警告' : '严重'}
-                    </Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="状态">
-                    <Tag color={getStatusColor(eventDetail.eventStatus)}>
-                      {getStatusText(eventDetail.eventStatus)}
-                    </Tag>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="触发值">
-                    <Text strong type="danger">{eventDetail.triggerValue}</Text>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="阈值">
-                    {eventDetail.threshold}
-                  </Descriptions.Item>
-                  {eventDetail.changePercent != null && (
-                    <>
-                      <Descriptions.Item label="上一周期值">
-                        {eventDetail.previousValue}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="变化率">
-                        <Tag color={eventDetail.changePercent > 0 ? 'red' : 'green'}>
-                          {eventDetail.changePercent > 0 ? '+' : ''}{eventDetail.changePercent.toFixed(2)}%
+                    title={
+                      <Space>
+                        <BellOutlined style={{ color: '#1890ff' }} />
+                        <Text strong ellipsis style={{ maxWidth: 180 }} title={group.ruleName}>
+                          {group.ruleName}
+                        </Text>
+                        {group.activeEventCount > 0 && (
+                          <Badge count={group.activeEventCount} style={{ backgroundColor: '#ff4d4f' }} />
+                        )}
+                      </Space>
+                    }
+                    extra={
+                      <Tooltip title={group.dataModelName}>
+                        <Tag color="blue" style={{ marginRight: 0 }}>
+                          {group.dataModelName}
                         </Tag>
-                      </Descriptions.Item>
-                    </>
-                  )}
-                  <Descriptions.Item label="触发时间">
-                    {formatTime(eventDetail.triggeredAt)}
-                  </Descriptions.Item>
-                  {eventDetail.resolvedAt && (
-                    <Descriptions.Item label="恢复时间">
-                      {formatTime(eventDetail.resolvedAt)}
-                    </Descriptions.Item>
-                  )}
-                  {eventDetail.acknowledgedAt && (
-                    <>
-                      <Descriptions.Item label="确认时间">
-                        {formatTime(eventDetail.acknowledgedAt)}
-                      </Descriptions.Item>
-                      <Descriptions.Item label="确认人">
-                        {eventDetail.acknowledgedBy}
-                      </Descriptions.Item>
-                    </>
-                  )}
-                </Descriptions>
+                      </Tooltip>
+                    }
+                  >
+                    <Row gutter={[8, 8]}>
+                      <Col span={12}>
+                        <Statistic
+                          title="活跃事件"
+                          value={group.activeEventCount}
+                          valueStyle={{
+                            color: group.activeEventCount > 0 ? '#ff4d4f' : '#52c41a',
+                            fontSize: 20
+                          }}
+                          prefix={<FireOutlined />}
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Statistic
+                          title="总事件数"
+                          value={group.totalEventCount}
+                          valueStyle={{ fontSize: 20, color: '#1890ff' }}
+                          prefix={<WarningOutlined />}
+                        />
+                      </Col>
+                    </Row>
 
-                <Title level={5} style={{ marginTop: 24, marginBottom: 12 }}>
-                  最近24小时趋势
-                </Title>
-                <div
-                  ref={setTrendChartRef}
-                  style={{ height: 300, width: '100%' }}
-                />
+                    <Row gutter={[8, 8]} style={{ marginTop: 8 }}>
+                      <Col span={12}>
+                        <div style={{ fontSize: 12, color: '#888' }}>最近触发</div>
+                        <div style={{ fontSize: 13 }}>
+                          {group.lastTriggeredAt ? formatTime(group.lastTriggeredAt) : '-'}
+                        </div>
+                      </Col>
+                      <Col span={12}>
+                        <div style={{ fontSize: 12, color: '#888' }}>平均恢复时长</div>
+                        <div style={{ fontSize: 13 }}>
+                          {group.averageRecoveryMinutes != null
+                            ? `${group.averageRecoveryMinutes} 分钟`
+                            : '-'}
+                        </div>
+                      </Col>
+                    </Row>
 
-                {eventDetail.isRecovered && eventDetail.recoveryValue != null && (
-                  <Alert
-                    message="告警已恢复"
-                    description={`恢复值: ${eventDetail.recoveryValue}`}
-                    type="success"
-                    showIcon
-                    style={{ marginTop: 16 }}
-                  />
-                )}
-              </div>
-            ) : (
-              <Empty
-                description="请选择一个告警事件查看详情"
-                style={{ padding: '60px 0' }}
-              />
-            )}
-          </Card>
-        </Col>
-      </Row>
+                    <Row style={{ marginTop: 12 }}>
+                      <Col span={10}>
+                        <div
+                          ref={el => { pieChartRefs.current[group.ruleId] = el }}
+                          style={{ height: 100, width: '100%' }}
+                        />
+                      </Col>
+                      <Col span={14} style={{ paddingLeft: 8 }}>
+                        <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>严重等级分布</div>
+                        {renderSeverityLegend(group)}
+                      </Col>
+                    </Row>
+
+                    {expandedGroupId === group.ruleId && (
+                      <div style={{ marginTop: 16, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
+                        <Title level={5} style={{ marginBottom: 12 }}>
+                          <Space>
+                            <ClockCircleOutlined />
+                            事件时间线
+                          </Space>
+                        </Title>
+                        {renderTimeline(group.ruleId)}
+                      </div>
+                    )}
+                  </Card>
+                </Col>
+              ))}
+            </Row>
+          )}
+        </TabPane>
+      </Tabs>
     </div>
   )
 }

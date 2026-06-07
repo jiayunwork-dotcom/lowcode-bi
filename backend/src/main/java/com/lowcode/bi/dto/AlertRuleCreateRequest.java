@@ -20,6 +20,9 @@ public class AlertRuleCreateRequest {
     private Integer silencePeriod;
     private AlertSeverity severity;
     private List<NotificationChannelConfig> notificationChannels;
+    private Boolean escalationEnabled;
+    private Integer escalationThreshold;
+    private List<String> escalationRecipientUserIds;
 }
 
 @Data
