@@ -45,6 +45,7 @@ import type {
   DataModel
 } from '@/types'
 import * as echarts from 'echarts'
+import ReactECharts from 'echarts-for-react'
 
 const { Title, Text, Paragraph } = Typography
 const { Option } = Select
@@ -74,8 +75,6 @@ const AlertCenter: React.FC = () => {
   const [expandedGroupId, setExpandedGroupId] = useState<string | null>(null)
   const [dataModels, setDataModels] = useState<DataModel[]>([])
   const [groupTimeline, setGroupTimeline] = useState<Record<string, AlertEventTimelineItem[]>>({})
-  const pieChartRefs = useRef<Record<string, HTMLDivElement | null>>({})
-  const pieChartInstances = useRef<Record<string, echarts.ECharts | null>>({})
 
   const loadStatistics = useCallback(async () => {
     try {
@@ -249,60 +248,41 @@ const AlertCenter: React.FC = () => {
     }
   }, [trendChartRef, eventDetail, chartInstance])
 
-  useEffect(() => {
-    eventGroups.forEach(group => {
-      const chartRef = pieChartRefs.current[group.ruleId]
-      if (chartRef && group.severityDistribution) {
-        if (!pieChartInstances.current[group.ruleId]) {
-          pieChartInstances.current[group.ruleId] = echarts.init(chartRef)
-        }
-        const chart = pieChartInstances.current[group.ruleId]!
-        const dist = group.severityDistribution
-        const option: echarts.EChartsOption = {
-          tooltip: {
-            trigger: 'item',
-            formatter: '{b}: {c} ({d}%)'
+  const getPieChartOption = (dist: AlertEventGroup['severityDistribution']): echarts.EChartsOption => {
+    return {
+      tooltip: {
+        trigger: 'item',
+        formatter: '{b}: {c} ({d}%)'
+      },
+      series: [
+        {
+          type: 'pie',
+          radius: ['40%', '70%'],
+          avoidLabelOverlap: false,
+          itemStyle: {
+            borderRadius: 6,
+            borderColor: '#fff',
+            borderWidth: 2
           },
-          series: [
-            {
-              type: 'pie',
-              radius: ['40%', '70%'],
-              avoidLabelOverlap: false,
-              itemStyle: {
-                borderRadius: 6,
-                borderColor: '#fff',
-                borderWidth: 2
-              },
-              label: {
-                show: false
-              },
-              emphasis: {
-                label: {
-                  show: true,
-                  fontSize: 12,
-                  fontWeight: 'bold'
-                }
-              },
-              data: [
-                { value: dist.infoCount, name: '信息', itemStyle: { color: '#1890ff' } },
-                { value: dist.warningCount, name: '警告', itemStyle: { color: '#faad14' } },
-                { value: dist.criticalCount, name: '严重', itemStyle: { color: '#ff4d4f' } }
-              ].filter(d => d.value > 0)
+          label: {
+            show: false
+          },
+          emphasis: {
+            label: {
+              show: true,
+              fontSize: 12,
+              fontWeight: 'bold'
             }
-          ]
+          },
+          data: [
+            { value: dist.infoCount, name: '信息', itemStyle: { color: '#1890ff' } },
+            { value: dist.warningCount, name: '警告', itemStyle: { color: '#faad14' } },
+            { value: dist.criticalCount, name: '严重', itemStyle: { color: '#ff4d4f' } }
+          ].filter(d => d.value > 0)
         }
-        chart.setOption(option)
-      }
-    })
-
-    const handleResize = () => {
-      Object.values(pieChartInstances.current).forEach(chart => chart?.resize())
+      ]
     }
-    window.addEventListener('resize', handleResize)
-    return () => {
-      window.removeEventListener('resize', handleResize)
-    }
-  }, [eventGroups])
+  }
 
   const handleEventClick = async (event: AlertEvent) => {
     setSelectedEvent(event)
@@ -871,9 +851,10 @@ const AlertCenter: React.FC = () => {
 
                     <Row style={{ marginTop: 12 }}>
                       <Col span={10}>
-                        <div
-                          ref={el => { pieChartRefs.current[group.ruleId] = el }}
+                        <ReactECharts
+                          option={getPieChartOption(group.severityDistribution)}
                           style={{ height: 100, width: '100%' }}
+                          opts={{ renderer: 'svg' }}
                         />
                       </Col>
                       <Col span={14} style={{ paddingLeft: 8 }}>
