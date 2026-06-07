@@ -44,4 +44,12 @@ public interface AlertRuleRepository extends JpaRepository<AlertRule, UUID> {
     List<Object[]> findTopTriggeredRules(@Param("tenantId") UUID tenantId, @Param("startTime") LocalDateTime startTime, Pageable pageable);
 
     long countByTenantIdAndStatus(UUID tenantId, AlertRuleStatus status);
+
+    @Query("SELECT ar FROM AlertRule ar JOIN ar.subscriptions s " +
+           "WHERE ar.tenant.id = :tenantId AND s.user.id = :userId AND s.isSubscribed = true " +
+           "ORDER BY s.subscribedAt DESC")
+    Page<AlertRule> findSubscribedRulesByUserAndTenant(
+        @Param("userId") UUID userId,
+        @Param("tenantId") UUID tenantId,
+        Pageable pageable);
 }

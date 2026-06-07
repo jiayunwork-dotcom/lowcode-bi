@@ -352,22 +352,7 @@ public class AlertRuleServiceImpl implements AlertRuleService {
         UUID tenantId = TenantContext.getTenantId();
         UUID userId = TenantContext.getUserId();
 
-        List<AlertSubscription> subscriptions = subscriptionRepository
-            .findByUserIdAndTenantId(userId, tenantId);
-
-        List<UUID> ruleIds = subscriptions.stream()
-            .filter(AlertSubscription::getIsSubscribed)
-            .map(s -> s.getAlertRule().getId())
-            .collect(Collectors.toList());
-
-        Pageable sortedPageable = PageRequest.of(
-            pageable.getPageNumber(),
-            pageable.getPageSize(),
-            Sort.by(Sort.Direction.DESC, "createdAt")
-        );
-
-        return alertRuleRepository.findByTenantId(tenantId, sortedPageable)
-            .filter(rule -> ruleIds.contains(rule.getId()))
+        return alertRuleRepository.findSubscribedRulesByUserAndTenant(userId, tenantId, pageable)
             .map(this::toResponse);
     }
 

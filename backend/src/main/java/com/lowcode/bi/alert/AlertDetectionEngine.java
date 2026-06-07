@@ -176,8 +176,8 @@ public class AlertDetectionEngine {
         String whereClause = "WHERE 1=1";
         if (timeColumn != null) {
             whereClause += String.format(
-                " AND %s >= NOW() - INTERVAL '%d seconds' - INTERVAL '%d seconds'" +
-                " AND %s < NOW() - INTERVAL '%d seconds'",
+                " AND %s >= NOW() - toIntervalSecond(%d) - toIntervalSecond(%d)" +
+                " AND %s < NOW() - toIntervalSecond(%d)",
                 timeColumn, periodSeconds, offsetSeconds,
                 timeColumn, offsetSeconds
             );
@@ -388,7 +388,18 @@ public class AlertDetectionEngine {
     private void checkRecoveryForEvent(AlertRule rule, AlertEvent event) {
         try {
             BigDecimal currentValue = queryCurrentMetricValue(rule);
-            boolean hasRecovered = !evaluateCondition(rule, currentValue, null);
+            BigDecimal changePercent = null;
+
+            if (rule.getTriggerType() == AlertTriggerType.RELATIVE_CHANGE) {
+                BigDecimal previousValue = queryPreviousMetricValue(rule);
+                if (previousValue != null && previousValue.compareTo(BigDecimal.ZERO) != 0) {
+                    changePercent = currentValue.subtract(previousValue)
+                            .divide(previousValue, 4, RoundingMode.HALF_UP)
+                            .multiply(new BigDecimal("100"));
+                }
+            }
+
+            boolean hasRecovered = !evaluateCondition(rule, currentValue, changePercent);
 
             if (hasRecovered) {
                 event.setIsRecovered(true);
@@ -419,9 +430,9 @@ public class AlertDetectionEngine {
         String tableName = getTableNameFromDataModel(dataModel, tableAlias);
 
         String sql = String.format(
-            "SELECT toStartOfFiveMinute(%s) as time_bucket, %s(%s.%s) as value " +
+            "SELECT toStartOfInterval(%s, INTERVAL 5 MINUTE) as time_bucket, %s(%s.%s) as value " +
             "FROM %s %s " +
-            "WHERE %s >= NOW() - INTERVAL '24 hours' " +
+            "WHERE %s >= NOW() - toIntervalHour(24) " +
             "GROUP BY time_bucket " +
             "ORDER BY time_bucket ASC",
             timeColumn, aggregation, tableAlias, columnName,

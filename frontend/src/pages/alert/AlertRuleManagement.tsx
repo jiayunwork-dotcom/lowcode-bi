@@ -70,6 +70,8 @@ const AlertRuleManagement: React.FC = () => {
   const [ruleEvents, setRuleEvents] = useState<AlertEvent[]>([])
   const [eventsLoading, setEventsLoading] = useState(false)
   const [showEventDetail, setShowEventDetail] = useState<AlertEvent | null>(null)
+  const [subscribedRules, setSubscribedRules] = useState<AlertRule[]>([])
+  const [subscribedTotal, setSubscribedTotal] = useState(0)
 
   const loadRules = useCallback(async () => {
     setLoading(true)
@@ -79,6 +81,20 @@ const AlertRuleManagement: React.FC = () => {
     } catch (error) {
       console.error('Failed to load rules:', error)
       message.error('加载告警规则失败')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const loadSubscribedRules = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await alertApi.getSubscribedRules({ page: 0, size: 100 })
+      setSubscribedRules(data.content || [])
+      setSubscribedTotal(data.totalElements || 0)
+    } catch (error) {
+      console.error('Failed to load subscribed rules:', error)
+      message.error('加载订阅规则失败')
     } finally {
       setLoading(false)
     }
@@ -107,6 +123,12 @@ const AlertRuleManagement: React.FC = () => {
     loadRules()
     loadDataModels()
   }, [loadRules, loadDataModels])
+
+  useEffect(() => {
+    if (activeTab === 'subscribed') {
+      loadSubscribedRules()
+    }
+  }, [activeTab, loadSubscribedRules])
 
   const handleDataModelChange = (value: string) => {
     loadMeasures(value)
@@ -207,7 +229,11 @@ const AlertRuleManagement: React.FC = () => {
     try {
       await alertApi.subscribe(rule.id, subscribed)
       message.success(subscribed ? '订阅成功' : '取消订阅成功')
-      loadRules()
+      if (activeTab === 'subscribed') {
+        loadSubscribedRules()
+      } else {
+        loadRules()
+      }
     } catch (error) {
       console.error('Failed to subscribe:', error)
       message.error('操作失败')
@@ -440,9 +466,8 @@ const AlertRuleManagement: React.FC = () => {
     }
   ]
 
-  const filteredRules = activeTab === 'subscribed'
-    ? rules.filter(r => r.subscriberCount && r.subscriberCount > 0)
-    : rules
+  const displayRules = activeTab === 'subscribed' ? subscribedRules : rules
+  const totalCount = activeTab === 'subscribed' ? subscribedTotal : rules.length
 
   return (
     <div>
@@ -464,18 +489,18 @@ const AlertRuleManagement: React.FC = () => {
           style={{ marginBottom: 16 }}
         >
           <TabPane tab={`全部规则 (${rules.length})`} key="all" />
-          <TabPane tab={`我订阅的 (${rules.filter(r => r.subscriberCount && r.subscriberCount > 0).length})`} key="subscribed" />
+          <TabPane tab={`我订阅的 (${subscribedTotal})`} key="subscribed" />
         </Tabs>
 
         <Table
           columns={columns}
-          dataSource={filteredRules}
+          dataSource={displayRules}
           rowKey="id"
           loading={loading}
           pagination={{
             pageSize: 20,
             showSizeChanger: true,
-            showTotal: (total) => `共 ${total} 条规则`
+            showTotal: (total) => `共 ${totalCount} 条规则`
           }}
           scroll={{ x: 1000 }}
         />
